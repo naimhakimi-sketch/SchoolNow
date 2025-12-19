@@ -1,0 +1,34 @@
+# Flutter / Dart
+**/.dart_tool/
+**/build/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.metadata
+
+# IDEs
+**/.idea/
+**/*.iml
+**/.vscode/
+
+# Android
+**/android/.gradle/
+**/android/local.properties
+**/android/key.properties
+**/android/app/google-services.json
+**/*.jks
+**/*.keystore
+
+# iOS / macOS
+**/ios/Flutter/ephemeral/
+**/macos/Flutter/ephemeral/
+
+# Firebase (iOS)
+**/ios/Runner/GoogleService-Info.plist
+
+# Misc
+**/*.log
+**/coverage/
+**/.DS_Store
+
+# Local temp artifacts
+.tmp_pdf/
