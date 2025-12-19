@@ -39,6 +39,8 @@ class _DrivePageState extends State<DrivePage> {
 
   bool _loadingAction = false;
   String? _error;
+  bool _showStudentList = false;
+  bool _showQrOverlay = false;
 
   String _selectedRouteType = 'morning';
 
@@ -61,11 +63,10 @@ class _DrivePageState extends State<DrivePage> {
     }
   }
 
-  bool _isAfternoonRoute(String routeType) => routeType == 'primary_pm' || routeType == 'secondary_pm';
+  bool _isAfternoonRoute(String routeType) =>
+      routeType == 'primary_pm' || routeType == 'secondary_pm';
 
   bool _canStartRouteNow(String routeType, DateTime now) {
-    // SRS FR-DR-3.4: Activation Time Restrictions
-    // Morning: 6:00 AM, Primary PM: 1:30 PM, Secondary PM: 3:00 PM
     final start = switch (routeType) {
       'morning' => DateTime(now.year, now.month, now.day, 6, 0),
       'primary_pm' => DateTime(now.year, now.month, now.day, 13, 30),
@@ -91,19 +92,22 @@ class _DrivePageState extends State<DrivePage> {
     try {
       final now = DateTime.now();
       if (!_canStartRouteNow(_selectedRouteType, now)) {
-        throw Exception('Service can only be activated at ${_routeLabel(_selectedRouteType)} start time.');
+        throw Exception(
+          'Service can only be activated at ${_routeLabel(_selectedRouteType)} start time.',
+        );
       }
 
-      final todayYmd = '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      final todayYmd =
+          '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
 
       final driver = await _driverService.getDriver(widget.driverId);
-      final vehicleId = (driver?['transport_number'] ?? 'vehicle_unknown').toString();
+      final vehicleId = (driver?['transport_number'] ?? 'vehicle_unknown')
+          .toString();
 
-      // SRS FR-DR-3.2: students scheduled for current day.
-      // For MVP we treat all approved students under this driver as scheduled.
-      final studentIds = await _studentService.getApprovedStudentIds(widget.driverId);
+      final studentIds = await _studentService.getApprovedStudentIds(
+        widget.driverId,
+      );
 
-      // Optional parent attendance override (SRS FR-PA-5.6).
       final absentIds = <String>[];
       final studentsSnap = await FirebaseFirestore.instance
           .collection('drivers')
@@ -130,9 +134,16 @@ class _DrivePageState extends State<DrivePage> {
 
       for (final id in absentIds) {
         if (!studentIds.contains(id)) continue;
-        await _tripService.upsertPassengerStatus(tripId, id, BoardingStatus.absent);
+        await _tripService.upsertPassengerStatus(
+          tripId,
+          id,
+          BoardingStatus.absent,
+        );
       }
-      await _locationService.startSharing(tripId: tripId, driverId: widget.driverId);
+      await _locationService.startSharing(
+        tripId: tripId,
+        driverId: widget.driverId,
+      );
     } catch (e) {
       setState(() {
         _error = 'Failed to start trip: $e';
@@ -168,19 +179,19 @@ class _DrivePageState extends State<DrivePage> {
     }
   }
 
-  Future<void> _scanStudentQr({
-    required String tripId,
-  }) async {
+  Future<void> _scanStudentQr({required String tripId}) async {
     if (!mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => QrScannerPage(
           onCode: (code) async {
-            // For now we expect QR to encode the studentId.
             final studentId = code;
-            await _tripService.upsertPassengerStatus(tripId, studentId, BoardingStatus.boarded);
+            await _tripService.upsertPassengerStatus(
+              tripId,
+              studentId,
+              BoardingStatus.boarded,
+            );
 
-            // Notify parent (best-effort).
             try {
               final studentSnap = await FirebaseFirestore.instance
                   .collection('drivers')
@@ -188,8 +199,10 @@ class _DrivePageState extends State<DrivePage> {
                   .collection('students')
                   .doc(studentId)
                   .get();
-              final parentId = (studentSnap.data()?['parent_id'] ?? '').toString();
-              final studentName = (studentSnap.data()?['student_name'] ?? studentId).toString();
+              final parentId = (studentSnap.data()?['parent_id'] ?? '')
+                  .toString();
+              final studentName =
+                  (studentSnap.data()?['student_name'] ?? studentId).toString();
               if (parentId.isNotEmpty) {
                 await _notifications.createUnique(
                   notificationId: 'boarding_${tripId}_${studentId}_boarded',
@@ -212,15 +225,15 @@ class _DrivePageState extends State<DrivePage> {
   }
 
   void _focusNextStop(LatLng destination) {
-    // In-app "navigation": center the map on the next stop.
     _mapController.move(destination, 16);
   }
 
   String _makeRouteKey(String routeType, List<LatLng> points) {
     final b = StringBuffer(routeType);
     for (final p in points) {
-      // rounding helps avoid churn from tiny float differences
-      b.write('|${p.latitude.toStringAsFixed(5)},${p.longitude.toStringAsFixed(5)}');
+      b.write(
+        '|${p.latitude.toStringAsFixed(5)},${p.longitude.toStringAsFixed(5)}',
+      );
     }
     return b.toString();
   }
@@ -235,29 +248,35 @@ class _DrivePageState extends State<DrivePage> {
       _routingInFlight = true;
       _routingStatusText = 'Routing…';
     });
-    _routingService.routeDrivingWithSteps(stops, includeSteps: true).then((route) {
-      if (!mounted) return;
-      setState(() {
-        _routedKey = key;
-        // If routing fails silently (empty), we keep fallback straight polyline.
-        final routed = route?.geometry ?? const <LatLng>[];
-        final ok = routed.length >= 2;
-        _routedPolyline = ok ? routed : null;
-        _routedSteps = (ok ? (route?.steps ?? const <String>[]) : const <String>[]);
-        _routingStatusText = ok ? 'Routing: OSRM (roads)' : 'Routing: straight line (no route)';
-      });
-    }).catchError((_) {
-      // Network/service issues should not break the UI.
-      if (!mounted) return;
-      setState(() {
-        _routedKey = key;
-        _routedPolyline = null;
-        _routedSteps = const [];
-        _routingStatusText = 'Routing: straight line (OSRM unavailable)';
-      });
-    }).whenComplete(() {
-      _routingInFlight = false;
-    });
+    _routingService
+        .routeDrivingWithSteps(stops, includeSteps: true)
+        .then((route) {
+          if (!mounted) return;
+          setState(() {
+            _routedKey = key;
+            final routed = route?.geometry ?? const <LatLng>[];
+            final ok = routed.length >= 2;
+            _routedPolyline = ok ? routed : null;
+            _routedSteps = (ok
+                ? (route?.steps ?? const <String>[])
+                : const <String>[]);
+            _routingStatusText = ok
+                ? 'Routing: OSRM (roads)'
+                : 'Routing: straight line (no route)';
+          });
+        })
+        .catchError((_) {
+          if (!mounted) return;
+          setState(() {
+            _routedKey = key;
+            _routedPolyline = null;
+            _routedSteps = const [];
+            _routingStatusText = 'Routing: straight line (OSRM unavailable)';
+          });
+        })
+        .whenComplete(() {
+          _routingInFlight = false;
+        });
   }
 
   LatLng? _latLngFromMap(Map<String, dynamic>? m) {
@@ -269,19 +288,20 @@ class _DrivePageState extends State<DrivePage> {
   }
 
   LatLng? _driverHome(Map<String, dynamic>? driverData) {
-    final home = (driverData?['home_location'] as Map?)?.cast<String, dynamic>();
+    final home = (driverData?['home_location'] as Map?)
+        ?.cast<String, dynamic>();
     return _latLngFromMap(home);
   }
 
   LatLng? _schoolPoint(Map<String, dynamic>? driverData) {
-    final serviceArea = (driverData?['service_area'] as Map?)?.cast<String, dynamic>();
+    final serviceArea = (driverData?['service_area'] as Map?)
+        ?.cast<String, dynamic>();
     final lat = (serviceArea?['school_lat'] as num?)?.toDouble();
     final lng = (serviceArea?['school_lng'] as num?)?.toDouble();
     if (lat == null || lng == null) return null;
     return LatLng(lat, lng);
   }
 
-  // SRS routing rule: sort stops by distance from current origin.
   List<Map<String, dynamic>> _sortStopsByNearestNeighbor({
     required LatLng origin,
     required List<Map<String, dynamic>> stops,
@@ -320,7 +340,9 @@ class _DrivePageState extends State<DrivePage> {
         (x) => (x['student_id'] ?? '').toString() == studentId,
         orElse: () => const <String, dynamic>{},
       );
-      return BoardingStatusCodec.fromJson((p['status'] ?? 'not_boarded').toString());
+      return BoardingStatusCodec.fromJson(
+        (p['status'] ?? 'not_boarded').toString(),
+      );
     }
 
     LatLng? pickupOf(String studentId) {
@@ -333,26 +355,25 @@ class _DrivePageState extends State<DrivePage> {
     final studentIds = studentById.keys.toList();
 
     if (!isAfternoon) {
-      // Morning: home -> remaining pickups -> school
       final pendingPickups = <Map<String, dynamic>>[];
       for (final id in studentIds) {
         final s = statusOf(id);
-        if (s == BoardingStatus.boarded || s == BoardingStatus.absent || s == BoardingStatus.alighted) continue;
+        if (s == BoardingStatus.boarded ||
+            s == BoardingStatus.absent ||
+            s == BoardingStatus.alighted)
+          continue;
         final p = pickupOf(id);
         if (p != null) {
           pendingPickups.add({'student_id': id, 'point': p});
         }
       }
 
-      final ordered = pendingPickups.isEmpty ? const <Map<String, dynamic>>[] : _sortStopsByNearestNeighbor(origin: home, stops: pendingPickups);
-      return [
-        home,
-        ...ordered.map((e) => e['point'] as LatLng),
-        school,
-      ];
+      final ordered = pendingPickups.isEmpty
+          ? const <Map<String, dynamic>>[]
+          : _sortStopsByNearestNeighbor(origin: home, stops: pendingPickups);
+      return [home, ...ordered.map((e) => e['point'] as LatLng), school];
     }
 
-    // Afternoon: school -> remaining dropoffs -> home
     final remainingDropoffs = <Map<String, dynamic>>[];
     for (final id in studentIds) {
       final s = statusOf(id);
@@ -362,12 +383,10 @@ class _DrivePageState extends State<DrivePage> {
         remainingDropoffs.add({'student_id': id, 'point': p});
       }
     }
-    final ordered = remainingDropoffs.isEmpty ? const <Map<String, dynamic>>[] : _sortStopsByNearestNeighbor(origin: school, stops: remainingDropoffs);
-    return [
-      school,
-      ...ordered.map((e) => e['point'] as LatLng),
-      home,
-    ];
+    final ordered = remainingDropoffs.isEmpty
+        ? const <Map<String, dynamic>>[]
+        : _sortStopsByNearestNeighbor(origin: school, stops: remainingDropoffs);
+    return [school, ...ordered.map((e) => e['point'] as LatLng), home];
   }
 
   LatLng? _nextDestination({
@@ -382,13 +401,14 @@ class _DrivePageState extends State<DrivePage> {
 
     final isAfternoon = _isAfternoonRoute(routeType);
 
-    // Map passenger statuses.
     BoardingStatus statusOf(String studentId) {
       final p = passengers.firstWhere(
         (x) => (x['student_id'] ?? '').toString() == studentId,
         orElse: () => const <String, dynamic>{},
       );
-      return BoardingStatusCodec.fromJson((p['status'] ?? 'not_boarded').toString());
+      return BoardingStatusCodec.fromJson(
+        (p['status'] ?? 'not_boarded').toString(),
+      );
     }
 
     LatLng? pickupOf(String studentId) {
@@ -400,24 +420,28 @@ class _DrivePageState extends State<DrivePage> {
     final studentIds = studentById.keys.toList();
 
     if (!isAfternoon) {
-      // Morning: home -> pickups -> school
       final pendingPickups = <Map<String, dynamic>>[];
       for (final id in studentIds) {
         final s = statusOf(id);
-        if (s == BoardingStatus.boarded || s == BoardingStatus.absent || s == BoardingStatus.alighted) continue;
+        if (s == BoardingStatus.boarded ||
+            s == BoardingStatus.absent ||
+            s == BoardingStatus.alighted)
+          continue;
         final p = pickupOf(id);
         if (p != null) {
           pendingPickups.add({'student_id': id, 'point': p});
         }
       }
       if (pendingPickups.isNotEmpty) {
-        final ordered = _sortStopsByNearestNeighbor(origin: home, stops: pendingPickups);
+        final ordered = _sortStopsByNearestNeighbor(
+          origin: home,
+          stops: pendingPickups,
+        );
         return ordered.first['point'] as LatLng;
       }
       return school;
     }
 
-    // Afternoon: school -> dropoffs -> home
     final stillAtSchool = studentIds.any((id) {
       final s = statusOf(id);
       return s == BoardingStatus.notBoarded;
@@ -429,7 +453,6 @@ class _DrivePageState extends State<DrivePage> {
     final pendingDropoffs = <Map<String, dynamic>>[];
     for (final id in studentIds) {
       final s = statusOf(id);
-      // After school, students should be boarded (in van) then alighted at home.
       if (s == BoardingStatus.alighted || s == BoardingStatus.absent) continue;
       final p = pickupOf(id);
       if (p != null) {
@@ -437,20 +460,24 @@ class _DrivePageState extends State<DrivePage> {
       }
     }
     if (pendingDropoffs.isNotEmpty) {
-      final ordered = _sortStopsByNearestNeighbor(origin: school, stops: pendingDropoffs);
+      final ordered = _sortStopsByNearestNeighbor(
+        origin: school,
+        stops: pendingDropoffs,
+      );
       return ordered.first['point'] as LatLng;
     }
 
     return home;
   }
 
-  Widget _buildRouteMap({
+  Widget _buildFullScreenMap({
     required Map<String, dynamic>? driverData,
     required String routeType,
     required List<Map<String, dynamic>> passengers,
     required Map<String, Map<String, dynamic>> studentById,
   }) {
-    final serviceArea = (driverData?['service_area'] as Map?)?.cast<String, dynamic>();
+    final serviceArea = (driverData?['service_area'] as Map?)
+        ?.cast<String, dynamic>();
     final schoolLat = (serviceArea?['school_lat'] as num?)?.toDouble();
     final schoolLng = (serviceArea?['school_lng'] as num?)?.toDouble();
     final radiusKm = (serviceArea?['radius_km'] as num?)?.toDouble();
@@ -472,14 +499,16 @@ class _DrivePageState extends State<DrivePage> {
       studentById: studentById,
     );
 
-    // Kick off routing to get a road-following polyline.
-    // This is intentionally "fire-and-forget" so map rendering stays synchronous.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _ensureRoutedPolyline(routeType, stopPolylinePoints);
     });
 
-    final routed = _routedKey == _makeRouteKey(routeType, stopPolylinePoints) ? _routedPolyline : null;
-    final polylinePoints = (routed != null && routed.length >= 2) ? routed : stopPolylinePoints;
+    final routed = _routedKey == _makeRouteKey(routeType, stopPolylinePoints)
+        ? _routedPolyline
+        : null;
+    final polylinePoints = (routed != null && routed.length >= 2)
+        ? routed
+        : stopPolylinePoints;
 
     final school = _schoolPoint(driverData);
     if (school != null) {
@@ -510,14 +539,17 @@ class _DrivePageState extends State<DrivePage> {
         (x) => (x['student_id'] ?? '').toString() == studentId,
         orElse: () => const <String, dynamic>{},
       );
-      return BoardingStatusCodec.fromJson((p['status'] ?? 'not_boarded').toString());
+      return BoardingStatusCodec.fromJson(
+        (p['status'] ?? 'not_boarded').toString(),
+      );
     }
 
-    // SRS FR-DR-3.10: remove pickup pin once boarded.
     for (final entry in studentById.entries) {
       final studentId = entry.key;
       final student = entry.value;
-      final pickup = _latLngFromMap((student['pickup_location'] as Map?)?.cast<String, dynamic>());
+      final pickup = _latLngFromMap(
+        (student['pickup_location'] as Map?)?.cast<String, dynamic>(),
+      );
       if (pickup == null) continue;
 
       final s = statusOf(studentId);
@@ -525,9 +557,11 @@ class _DrivePageState extends State<DrivePage> {
 
       bool show;
       if (!isAfternoon) {
-        show = !(s == BoardingStatus.boarded || s == BoardingStatus.absent || s == BoardingStatus.alighted);
+        show =
+            !(s == BoardingStatus.boarded ||
+                s == BoardingStatus.absent ||
+                s == BoardingStatus.alighted);
       } else {
-        // Afternoon: show dropoff pins until arrived/absent.
         show = !(s == BoardingStatus.alighted || s == BoardingStatus.absent);
       }
 
@@ -543,49 +577,45 @@ class _DrivePageState extends State<DrivePage> {
       );
     }
 
-    return SizedBox(
-      height: 220,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: FlutterMap(
-          mapController: _mapController,
-          options: MapOptions(
-            initialCenter: center,
-            initialZoom: hasArea ? 13 : 2,
-            interactionOptions: const InteractionOptions(flags: InteractiveFlag.all & ~InteractiveFlag.rotate),
-          ),
-          children: [
-            TileLayer(
-              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-              userAgentPackageName: 'school_now_driver',
-            ),
-            if (polylinePoints.length >= 2)
-              PolylineLayer(
-                polylines: [
-                  Polyline(
-                    points: polylinePoints,
-                    strokeWidth: 4,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                ],
-              ),
-            if (hasArea)
-              CircleLayer(
-                circles: [
-                  CircleMarker(
-                    point: center,
-                    radius: radiusMeters,
-                    useRadiusInMeter: true,
-                    color: Colors.blue.withValues(alpha: 0.15),
-                    borderColor: Colors.blue.withValues(alpha: 0.6),
-                    borderStrokeWidth: 2,
-                  ),
-                ],
-              ),
-            if (markers.isNotEmpty) MarkerLayer(markers: markers),
-          ],
+    return FlutterMap(
+      mapController: _mapController,
+      options: MapOptions(
+        initialCenter: center,
+        initialZoom: hasArea ? 13 : 2,
+        interactionOptions: const InteractionOptions(
+          flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
         ),
       ),
+      children: [
+        TileLayer(
+          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          userAgentPackageName: 'school_now_driver',
+        ),
+        if (polylinePoints.length >= 2)
+          PolylineLayer(
+            polylines: [
+              Polyline(
+                points: polylinePoints,
+                strokeWidth: 4,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ],
+          ),
+        if (hasArea)
+          CircleLayer(
+            circles: [
+              CircleMarker(
+                point: center,
+                radius: radiusMeters,
+                useRadiusInMeter: true,
+                color: Colors.blue.withValues(alpha: 0.15),
+                borderColor: Colors.blue.withValues(alpha: 0.6),
+                borderStrokeWidth: 2,
+              ),
+            ],
+          ),
+        if (markers.isNotEmpty) MarkerLayer(markers: markers),
+      ],
     );
   }
 
@@ -598,7 +628,9 @@ class _DrivePageState extends State<DrivePage> {
         (x) => (x['student_id'] ?? '').toString() == studentId,
         orElse: () => const <String, dynamic>{},
       );
-      return BoardingStatusCodec.fromJson((p['status'] ?? 'not_boarded').toString());
+      return BoardingStatusCodec.fromJson(
+        (p['status'] ?? 'not_boarded').toString(),
+      );
     }
 
     for (final id in studentIds) {
@@ -617,380 +649,1091 @@ class _DrivePageState extends State<DrivePage> {
         (x) => (x['student_id'] ?? '').toString() == studentId,
         orElse: () => const <String, dynamic>{},
       );
-      return BoardingStatusCodec.fromJson((p['status'] ?? 'not_boarded').toString());
+      return BoardingStatusCodec.fromJson(
+        (p['status'] ?? 'not_boarded').toString(),
+      );
     }
 
     for (final id in studentIds) {
       final s = statusOf(id);
-      if (s != BoardingStatus.alighted && s != BoardingStatus.absent) return false;
+      if (s != BoardingStatus.alighted && s != BoardingStatus.absent)
+        return false;
     }
     return true;
   }
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: _driverService.streamDriver(widget.driverId),
-          builder: (context, driverSnap) {
-            final driverData = driverSnap.data?.data();
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: _driverService.streamDriver(widget.driverId),
+      builder: (context, driverSnap) {
+        final driverData = driverSnap.data?.data();
 
-            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: _studentService.streamApprovedStudents(widget.driverId),
-              builder: (context, studentsSnap) {
-                final studentDocs = studentsSnap.data?.docs ?? const [];
-                final studentById = {
-                  for (final d in studentDocs) d.id: d.data(),
-                };
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: _studentService.streamApprovedStudents(widget.driverId),
+          builder: (context, studentsSnap) {
+            final studentDocs = studentsSnap.data?.docs ?? const [];
+            final studentById = {for (final d in studentDocs) d.id: d.data()};
 
-                return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>?>(
-                  stream: _tripService.streamActiveTripForDriver(widget.driverId),
-                  builder: (context, tripSnap) {
-                    final tripDoc = tripSnap.data;
-                    final trip = tripDoc?.data();
+            return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>?>(
+              stream: _tripService.streamActiveTripForDriver(widget.driverId),
+              builder: (context, tripSnap) {
+                final tripDoc = tripSnap.data;
+                final trip = tripDoc?.data();
 
-                    final tripId = tripDoc?.id;
-                    final status = (trip?['status'] ?? '').toString();
-                    final passengers = (trip?['passengers'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
-                    final routeType = (trip?['route_type'] ?? _selectedRouteType).toString();
-                    final studentIds = studentById.keys;
+                final tripId = tripDoc?.id;
+                final status = (trip?['status'] ?? '').toString();
+                final passengers =
+                    (trip?['passengers'] as List?)
+                        ?.cast<Map<String, dynamic>>() ??
+                    const [];
+                final routeType = (trip?['route_type'] ?? _selectedRouteType)
+                    .toString();
+                final studentIds = studentById.keys;
 
-                    final orderedStudentIds = studentById.entries.toList()
-                      ..sort((a, b) {
-                        final an = (a.value['student_name'] ?? a.key).toString().toLowerCase();
-                        final bn = (b.value['student_name'] ?? b.key).toString().toLowerCase();
-                        return an.compareTo(bn);
-                      });
+                final orderedStudentIds = studentById.entries.toList()
+                  ..sort((a, b) {
+                    final an = (a.value['student_name'] ?? a.key)
+                        .toString()
+                        .toLowerCase();
+                    final bn = (b.value['student_name'] ?? b.key)
+                        .toString()
+                        .toLowerCase();
+                    return an.compareTo(bn);
+                  });
 
-                    final nextDest = tripId == null
-                        ? null
-                        : _nextDestination(
-                            routeType: routeType,
-                            driverData: driverData,
-                            passengers: passengers,
-                            studentById: studentById,
-                          );
+                final nextDest = tripId == null
+                    ? null
+                    : _nextDestination(
+                        routeType: routeType,
+                        driverData: driverData,
+                        passengers: passengers,
+                        studentById: studentById,
+                      );
 
-                    final isAfternoon = _isAfternoonRoute(routeType);
-                    final canArriveAtSchool = tripId != null && !isAfternoon && _allPickedUpOrAbsent(
-                          passengers: passengers,
-                          studentIds: studentIds,
-                        );
-
-                    final canEnd = tripId != null && _canEndSession(passengers: passengers, studentIds: studentIds);
-
-                    return ListView(
-                      children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            'Drive',
-                            style: Theme.of(context).textTheme.headlineSmall,
-                          ),
-                        ),
-                        if (widget.isDemoMode)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(color: Colors.orange, borderRadius: BorderRadius.circular(4)),
-                            child: const Text(
-                              'DEMO',
-                              style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    _buildRouteMap(
-                      driverData: driverData,
-                      routeType: tripId == null ? _selectedRouteType : routeType,
+                final isAfternoon = _isAfternoonRoute(routeType);
+                final canArriveAtSchool =
+                    tripId != null &&
+                    !isAfternoon &&
+                    _allPickedUpOrAbsent(
                       passengers: passengers,
-                      studentById: studentById,
-                    ),
-                    if (_routingStatusText != null) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        _routingStatusText!,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                    if (_routedSteps.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Card(
-                        child: ExpansionTile(
-                          title: const Text('Turn-by-turn instructions'),
-                          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                          children: [
-                            for (final s in _routedSteps.take(8))
-                              Padding(
-                                padding: const EdgeInsets.only(top: 8),
-                                child: Text(s, style: Theme.of(context).textTheme.bodySmall),
-                              ),
-                            if (_routedSteps.length > 8)
-                              const Padding(
-                                padding: EdgeInsets.only(top: 8),
-                                child: Text('…'),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 12),
+                      studentIds: studentIds,
+                    );
 
-                    if (tripId == null)
-                      Row(
-                        children: [
-                          const Text('Route:', style: TextStyle(fontWeight: FontWeight.w600)),
-                          const SizedBox(width: 12),
-                          DropdownButton<String>(
-                            value: _selectedRouteType,
-                            items: const [
-                              DropdownMenuItem(value: 'morning', child: Text('Morning')),
-                              DropdownMenuItem(value: 'primary_pm', child: Text('Primary PM')),
-                              DropdownMenuItem(value: 'secondary_pm', child: Text('Secondary PM')),
-                            ],
-                            onChanged: (v) {
-                              if (v == null) return;
-                              setState(() {
-                                _selectedRouteType = v;
-                              });
-                            },
-                          ),
-                        ],
-                      )
-                    else
-                      Text('Route: ${_routeLabel(routeType)}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                final canEnd =
+                    tripId != null &&
+                    _canEndSession(
+                      passengers: passengers,
+                      studentIds: studentIds,
+                    );
 
-                    if (_error != null)
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(color: Colors.red.shade100, borderRadius: BorderRadius.circular(8)),
-                        child: Text(_error!, style: TextStyle(color: Colors.red.shade900)),
+                return Scaffold(
+                  body: Stack(
+                    children: [
+                      // Full screen map
+                      _buildFullScreenMap(
+                        driverData: driverData,
+                        routeType: tripId == null
+                            ? _selectedRouteType
+                            : routeType,
+                        passengers: passengers,
+                        studentById: studentById,
                       ),
 
-                    const SizedBox(height: 12),
-                    if (tripId == null)
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: _loadingAction ? null : _startTrip,
-                          icon: const Icon(Icons.play_arrow),
-                          label: _loadingAction
-                              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                              : const Text('Start Service'),
-                        ),
-                      )
-                    else
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: (_loadingAction || !canEnd) ? null : () => _endTrip(tripId),
-                              icon: const Icon(Icons.stop),
-                              label: _loadingAction
-                                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                                  : Text(canEnd ? 'End Service' : 'End (Not ready)'),
-                              style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          OutlinedButton.icon(
-                            onPressed: _loadingAction ? null : () => _scanStudentQr(tripId: tripId),
-                            icon: const Icon(Icons.qr_code_scanner),
-                            label: const Text('Scan'),
-                          ),
-                        ],
-                      ),
-
-                    if (tripId != null) ...[
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: (_loadingAction || nextDest == null)
-                                  ? null
-                                  : () => _focusNextStop(nextDest),
-                              icon: const Icon(Icons.navigation),
-                              label: const Text('Navigate to Next Stop'),
-                            ),
-                          ),
-                          if (canArriveAtSchool) ...[
-                            const SizedBox(width: 12),
-                            ElevatedButton(
-                              onPressed: _loadingAction
-                                  ? null
-                                  : () async {
-                                      setState(() {
-                                        _loadingAction = true;
-                                        _error = null;
-                                      });
-                                      try {
-                                        await _tripService.markAllArrivedAtSchool(tripId);
-                                      } catch (e) {
-                                        setState(() {
-                                          _error = 'Failed to mark arrived: $e';
-                                        });
-                                      } finally {
-                                        if (mounted) {
-                                          setState(() {
-                                            _loadingAction = false;
-                                          });
-                                        }
-                                      }
-                                    },
-                              child: const Text('Arrived at School'),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ],
-
-                    const SizedBox(height: 12),
-                    if (tripId != null)
-                      Card(
+                      // Top overlay - Demo badge and route info
+                      SafeArea(
                         child: Padding(
-                          padding: const EdgeInsets.all(12),
+                          padding: const EdgeInsets.all(16),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('Session QR', style: Theme.of(context).textTheme.titleMedium),
-                              const SizedBox(height: 8),
-                              Center(
-                                child: QrImageView(
-                                  data: tripId,
-                                  size: 160,
-                                ),
+                              Row(
+                                children: [
+                                  if (widget.isDemoMode)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 6,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.orange,
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      child: const Text(
+                                        'DEMO',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  const Spacer(),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 6,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(20),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.2,
+                                          ),
+                                          blurRadius: 4,
+                                          offset: const Offset(0, 2),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Text(
+                                      tripId == null
+                                          ? _routeLabel(_selectedRouteType)
+                                          : _routeLabel(routeType),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(height: 8),
-                              Text('Trip ID: $tripId', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                              const SizedBox(height: 8),
-                              Text('Status: $status', style: const TextStyle(fontSize: 12)),
                             ],
                           ),
                         ),
                       ),
 
-                    const SizedBox(height: 12),
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Boarding Status', style: Theme.of(context).textTheme.titleMedium),
-                            const SizedBox(height: 8),
-                            if (tripId == null)
-                              Text(
-                                studentById.isEmpty
-                                    ? 'No students under service.'
-                                    : 'No active service. Start service to begin.',
-                              )
-                            else if (passengers.isEmpty && studentById.isEmpty)
-                              const Text('No students assigned to this trip yet.')
-                            else
-                              ListView.separated(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                itemCount: studentById.isEmpty ? passengers.length : studentById.length,
-                                separatorBuilder: (context, index) => const Divider(height: 1),
-                                itemBuilder: (context, i) {
-                                      final studentId = studentById.isEmpty
-                                          ? (passengers[i]['student_id'] ?? '').toString()
-                                          : orderedStudentIds[i].key;
+                      // Bottom overlay - Main controls
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        child: SafeArea(
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: const BorderRadius.vertical(
+                                top: Radius.circular(20),
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.1),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, -2),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // Drag handle
+                                Container(
+                                  margin: const EdgeInsets.only(top: 8),
+                                  width: 40,
+                                  height: 4,
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey[300],
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
+                                ),
 
-                                      final student = studentById[studentId];
-                                      final studentName = (student?['student_name'] ?? studentId).toString();
-                                      final parentPhone = (student?['parent_phone'] ?? '').toString();
+                                Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      // Error message
+                                      if (_error != null) ...[
+                                        Container(
+                                          width: double.infinity,
+                                          padding: const EdgeInsets.all(12),
+                                          decoration: BoxDecoration(
+                                            color: Colors.red.shade100,
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            _error!,
+                                            style: TextStyle(
+                                              color: Colors.red.shade900,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 12),
+                                      ],
 
-                                      final p = passengers.firstWhere(
-                                        (x) => (x['student_id'] ?? '').toString() == studentId,
-                                        orElse: () => const <String, dynamic>{},
-                                      );
-                                      final statusStr = (p['status'] ?? 'not_boarded').toString();
-                                      final statusEnum = BoardingStatusCodec.fromJson(statusStr);
-
-                                      final arrivedLabel = isAfternoon ? 'Arrived (Home)' : 'Arrived (School)';
-
-                                      return ListTile(
-                                        isThreeLine: true,
-                                        title: Text(studentName, maxLines: 2, overflow: TextOverflow.ellipsis),
-                                        subtitle: Text('Status: $statusStr', maxLines: 2, overflow: TextOverflow.ellipsis),
-                                        trailing: PopupMenuButton<String>(
-                                          onSelected: (v) async {
-                                            final next = BoardingStatusCodec.fromJson(v);
-                                            await _tripService.updatePassengerStatus(tripId, studentId, next);
-
-                                            // Notify parent (best-effort).
-                                            try {
-                                              final studentSnap = await FirebaseFirestore.instance
-                                                  .collection('drivers')
-                                                  .doc(widget.driverId)
-                                                  .collection('students')
-                                                  .doc(studentId)
-                                                  .get();
-                                              final parentId = (studentSnap.data()?['parent_id'] ?? '').toString();
-                                              final studentName = (studentSnap.data()?['student_name'] ?? studentId).toString();
-                                              if (parentId.isNotEmpty) {
-                                                final label = switch (next) {
-                                                  BoardingStatus.notBoarded => 'Not Boarded',
-                                                  BoardingStatus.boarded => 'Boarded',
-                                                  BoardingStatus.alighted => 'Arrived',
-                                                  BoardingStatus.absent => 'Absent',
-                                                };
-                                                await _notifications.createUnique(
-                                                  notificationId: 'boarding_${tripId}_${studentId}_${BoardingStatusCodec.toJson(next)}',
-                                                  userId: parentId,
-                                                  type: 'boarding',
-                                                  message: '$studentName: $label',
-                                                );
-                                              }
-                                            } catch (_) {}
-                                          },
-                                          itemBuilder: (_) => [
-                                            const PopupMenuItem(value: 'not_boarded', child: Text('Not Boarded')),
-                                            const PopupMenuItem(value: 'boarded', child: Text('Boarded')),
-                                            PopupMenuItem(value: 'alighted', child: Text(arrivedLabel)),
-                                            const PopupMenuItem(value: 'absent', child: Text('Absent')),
+                                      // Route selector (when no active trip)
+                                      if (tripId == null) ...[
+                                        Row(
+                                          children: [
+                                            const Text(
+                                              'Route:',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: DropdownButton<String>(
+                                                value: _selectedRouteType,
+                                                isExpanded: true,
+                                                items: const [
+                                                  DropdownMenuItem(
+                                                    value: 'morning',
+                                                    child: Text('Morning'),
+                                                  ),
+                                                  DropdownMenuItem(
+                                                    value: 'primary_pm',
+                                                    child: Text('Primary PM'),
+                                                  ),
+                                                  DropdownMenuItem(
+                                                    value: 'secondary_pm',
+                                                    child: Text('Secondary PM'),
+                                                  ),
+                                                ],
+                                                onChanged: (v) {
+                                                  if (v == null) return;
+                                                  setState(() {
+                                                    _selectedRouteType = v;
+                                                  });
+                                                },
+                                              ),
+                                            ),
                                           ],
                                         ),
-                                        onTap: parentPhone.isEmpty ? null : () => _launchCall(parentPhone),
-                                        leading: Icon(
-                                          statusEnum == BoardingStatus.boarded
-                                              ? Icons.check_circle
-                                              : statusEnum == BoardingStatus.alighted
-                                                  ? Icons.flag
-                                                  : statusEnum == BoardingStatus.absent
-                                                      ? Icons.remove_circle
-                                                      : Icons.radio_button_unchecked,
-                                          color: statusEnum == BoardingStatus.boarded
-                                              ? Colors.green
-                                              : statusEnum == BoardingStatus.alighted
-                                                  ? Colors.blue
-                                                  : statusEnum == BoardingStatus.absent
-                                                      ? Colors.orange
-                                                      : Colors.grey,
+                                        const SizedBox(height: 16),
+                                      ],
+
+                                      // Main action buttons
+                                      if (tripId == null)
+                                        SizedBox(
+                                          width: double.infinity,
+                                          height: 50,
+                                          child: ElevatedButton(
+                                            onPressed: _loadingAction
+                                                ? null
+                                                : _startTrip,
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: Theme.of(
+                                                context,
+                                              ).colorScheme.primary,
+                                              foregroundColor: Colors.white,
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                              ),
+                                            ),
+                                            child: _loadingAction
+                                                ? const SizedBox(
+                                                    width: 20,
+                                                    height: 20,
+                                                    child:
+                                                        CircularProgressIndicator(
+                                                          strokeWidth: 2,
+                                                          color: Colors.white,
+                                                        ),
+                                                  )
+                                                : const Row(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment
+                                                            .center,
+                                                    children: [
+                                                      Icon(Icons.play_arrow),
+                                                      SizedBox(width: 8),
+                                                      Text(
+                                                        'Start Service',
+                                                        style: TextStyle(
+                                                          fontSize: 16,
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                          ),
+                                        )
+                                      else ...[
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              flex: 2,
+                                              child: SizedBox(
+                                                height: 50,
+                                                child: ElevatedButton(
+                                                  onPressed:
+                                                      (_loadingAction ||
+                                                          !canEnd)
+                                                      ? null
+                                                      : () => _endTrip(tripId),
+                                                  style: ElevatedButton.styleFrom(
+                                                    backgroundColor: Colors.red,
+                                                    foregroundColor:
+                                                        Colors.white,
+                                                    shape: RoundedRectangleBorder(
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            12,
+                                                          ),
+                                                    ),
+                                                  ),
+                                                  child: _loadingAction
+                                                      ? const SizedBox(
+                                                          width: 20,
+                                                          height: 20,
+                                                          child:
+                                                              CircularProgressIndicator(
+                                                                strokeWidth: 2,
+                                                                color: Colors
+                                                                    .white,
+                                                              ),
+                                                        )
+                                                      : Row(
+                                                          mainAxisAlignment:
+                                                              MainAxisAlignment
+                                                                  .center,
+                                                          children: [
+                                                            const Icon(
+                                                              Icons.stop,
+                                                            ),
+                                                            const SizedBox(
+                                                              width: 8,
+                                                            ),
+                                                            Text(
+                                                              canEnd
+                                                                  ? 'End Service'
+                                                                  : 'End (Not ready)',
+                                                              style: const TextStyle(
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .w600,
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            SizedBox(
+                                              height: 50,
+                                              child: ElevatedButton(
+                                                onPressed: _loadingAction
+                                                    ? null
+                                                    : () {
+                                                        setState(() {
+                                                          _showQrOverlay =
+                                                              !_showQrOverlay;
+                                                        });
+                                                      },
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor: Colors.white,
+                                                  foregroundColor: Theme.of(
+                                                    context,
+                                                  ).colorScheme.primary,
+                                                  side: BorderSide(
+                                                    color: Theme.of(
+                                                      context,
+                                                    ).colorScheme.primary,
+                                                  ),
+                                                  shape: RoundedRectangleBorder(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          12,
+                                                        ),
+                                                  ),
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 16,
+                                                      ),
+                                                ),
+                                                child: const Icon(
+                                                  Icons.qr_code_scanner,
+                                                  size: 28,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
                                         ),
-                                      );
-                                    },
+                                        const SizedBox(height: 8),
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: SizedBox(
+                                                height: 44,
+                                                child: OutlinedButton(
+                                                  onPressed:
+                                                      (_loadingAction ||
+                                                          nextDest == null)
+                                                      ? null
+                                                      : () => _focusNextStop(
+                                                          nextDest,
+                                                        ),
+                                                  style: OutlinedButton.styleFrom(
+                                                    shape: RoundedRectangleBorder(
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            12,
+                                                          ),
+                                                    ),
+                                                  ),
+                                                  child: const Row(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment
+                                                            .center,
+                                                    children: [
+                                                      Icon(
+                                                        Icons.navigation,
+                                                        size: 18,
+                                                      ),
+                                                      SizedBox(width: 8),
+                                                      Text(
+                                                        'Navigate to Next',
+                                                        style: TextStyle(
+                                                          fontSize: 13,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                            if (canArriveAtSchool) ...[
+                                              const SizedBox(width: 8),
+                                              SizedBox(
+                                                height: 44,
+                                                child: ElevatedButton(
+                                                  onPressed: _loadingAction
+                                                      ? null
+                                                      : () async {
+                                                          setState(() {
+                                                            _loadingAction =
+                                                                true;
+                                                            _error = null;
+                                                          });
+                                                          try {
+                                                            await _tripService
+                                                                .markAllArrivedAtSchool(
+                                                                  tripId,
+                                                                );
+                                                          } catch (e) {
+                                                            setState(() {
+                                                              _error =
+                                                                  'Failed to mark arrived: $e';
+                                                            });
+                                                          } finally {
+                                                            if (mounted) {
+                                                              setState(() {
+                                                                _loadingAction =
+                                                                    false;
+                                                              });
+                                                            }
+                                                          }
+                                                        },
+                                                  style: ElevatedButton.styleFrom(
+                                                    shape: RoundedRectangleBorder(
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            12,
+                                                          ),
+                                                    ),
+                                                  ),
+                                                  child: const Text(
+                                                    'Arrived',
+                                                    style: TextStyle(
+                                                      fontSize: 13,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                        const SizedBox(height: 8),
+                                        SizedBox(
+                                          width: double.infinity,
+                                          height: 44,
+                                          child: OutlinedButton(
+                                            onPressed: () {
+                                              setState(() {
+                                                _showStudentList =
+                                                    !_showStudentList;
+                                              });
+                                            },
+                                            style: OutlinedButton.styleFrom(
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                              ),
+                                            ),
+                                            child: Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.center,
+                                              children: [
+                                                const Icon(
+                                                  Icons.people,
+                                                  size: 18,
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Text(
+                                                  'Student List (${studentById.length})',
+                                                  style: const TextStyle(
+                                                    fontSize: 13,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Icon(
+                                                  _showStudentList
+                                                      ? Icons
+                                                            .keyboard_arrow_down
+                                                      : Icons.keyboard_arrow_up,
+                                                  size: 18,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
                                   ),
-                          ],
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                    );
-                  },
+
+                      // QR overlay
+                      if (_showQrOverlay && tripId != null)
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          top: MediaQuery.of(context).size.height * 0.25,
+                          child: GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _showQrOverlay = false;
+                              });
+                            },
+                            child: Container(
+                              color: Colors.black.withValues(alpha: 0.5),
+                              child: GestureDetector(
+                                onTap: () {},
+                                child: Container(
+                                  margin: const EdgeInsets.only(top: 60),
+                                  decoration: const BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.vertical(
+                                      top: Radius.circular(20),
+                                    ),
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      Container(
+                                        margin: const EdgeInsets.only(top: 8),
+                                        width: 40,
+                                        height: 4,
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey[300],
+                                          borderRadius: BorderRadius.circular(
+                                            2,
+                                          ),
+                                        ),
+                                      ),
+                                      Padding(
+                                        padding: const EdgeInsets.all(16),
+                                        child: Row(
+                                          children: [
+                                            Text(
+                                              'Trip QR Code',
+                                              style: Theme.of(
+                                                context,
+                                              ).textTheme.titleLarge,
+                                            ),
+                                            const Spacer(),
+                                            IconButton(
+                                              icon: const Icon(Icons.close),
+                                              onPressed: () {
+                                                setState(() {
+                                                  _showQrOverlay = false;
+                                                });
+                                              },
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const Divider(height: 1),
+                                      Expanded(
+                                        child: SingleChildScrollView(
+                                          padding: const EdgeInsets.all(24),
+                                          child: Column(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
+                                            children: [
+                                              const Text(
+                                                'Students can scan this QR code',
+                                                style: TextStyle(
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 24),
+                                              Container(
+                                                padding: const EdgeInsets.all(
+                                                  16,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.white,
+                                                  borderRadius:
+                                                      BorderRadius.circular(16),
+                                                  boxShadow: [
+                                                    BoxShadow(
+                                                      color: Colors.black
+                                                          .withValues(
+                                                            alpha: 0.1,
+                                                          ),
+                                                      blurRadius: 10,
+                                                      spreadRadius: 2,
+                                                    ),
+                                                  ],
+                                                ),
+                                                child: QrImageView(
+                                                  data: tripId,
+                                                  version: QrVersions.auto,
+                                                  size: 250,
+                                                  backgroundColor: Colors.white,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 24),
+                                              Text(
+                                                'Trip ID: $tripId',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.grey[600],
+                                                ),
+                                              ),
+                                              const SizedBox(height: 32),
+                                              const Divider(),
+                                              const SizedBox(height: 16),
+                                              SizedBox(
+                                                width: double.infinity,
+                                                height: 50,
+                                                child: ElevatedButton.icon(
+                                                  onPressed: _loadingAction
+                                                      ? null
+                                                      : () {
+                                                          setState(() {
+                                                            _showQrOverlay =
+                                                                false;
+                                                          });
+                                                          _scanStudentQr(
+                                                            tripId: tripId,
+                                                          );
+                                                        },
+                                                  icon: const Icon(
+                                                    Icons.qr_code_scanner,
+                                                    size: 24,
+                                                  ),
+                                                  label: const Text(
+                                                    'Scan Student QR',
+                                                    style: TextStyle(
+                                                      fontSize: 16,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                                  ),
+                                                  style: ElevatedButton.styleFrom(
+                                                    backgroundColor: Theme.of(
+                                                      context,
+                                                    ).colorScheme.primary,
+                                                    foregroundColor:
+                                                        Colors.white,
+                                                    shape: RoundedRectangleBorder(
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            12,
+                                                          ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+
+                      // Student list overlay (expandable from bottom)
+                      if (_showStudentList && tripId != null)
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          top: MediaQuery.of(context).size.height * 0.25,
+                          child: GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _showStudentList = false;
+                              });
+                            },
+                            child: Container(
+                              color: Colors.black.withValues(alpha: 0.5),
+                              child: GestureDetector(
+                                onTap: () {},
+                                child: Container(
+                                  margin: const EdgeInsets.only(top: 60),
+                                  decoration: const BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.vertical(
+                                      top: Radius.circular(20),
+                                    ),
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      Container(
+                                        margin: const EdgeInsets.only(top: 8),
+                                        width: 40,
+                                        height: 4,
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey[300],
+                                          borderRadius: BorderRadius.circular(
+                                            2,
+                                          ),
+                                        ),
+                                      ),
+                                      Padding(
+                                        padding: const EdgeInsets.all(16),
+                                        child: Row(
+                                          children: [
+                                            Text(
+                                              'Boarding Status',
+                                              style: Theme.of(
+                                                context,
+                                              ).textTheme.titleLarge,
+                                            ),
+                                            const Spacer(),
+                                            IconButton(
+                                              icon: const Icon(Icons.close),
+                                              onPressed: () {
+                                                setState(() {
+                                                  _showStudentList = false;
+                                                });
+                                              },
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const Divider(height: 1),
+                                      Expanded(
+                                        child: studentById.isEmpty
+                                            ? const Center(
+                                                child: Text(
+                                                  'No students assigned',
+                                                ),
+                                              )
+                                            : ListView.separated(
+                                                padding: const EdgeInsets.all(
+                                                  16,
+                                                ),
+                                                itemCount:
+                                                    orderedStudentIds.length,
+                                                separatorBuilder:
+                                                    (context, index) =>
+                                                        const Divider(
+                                                          height: 20,
+                                                        ),
+                                                itemBuilder: (context, i) {
+                                                  final studentId =
+                                                      orderedStudentIds[i].key;
+                                                  final student =
+                                                      studentById[studentId];
+                                                  final studentName =
+                                                      (student?['student_name'] ??
+                                                              studentId)
+                                                          .toString();
+                                                  final parentPhone =
+                                                      (student?['parent_phone'] ??
+                                                              '')
+                                                          .toString();
+
+                                                  final p = passengers
+                                                      .firstWhere(
+                                                        (x) =>
+                                                            (x['student_id'] ??
+                                                                    '')
+                                                                .toString() ==
+                                                            studentId,
+                                                        orElse: () =>
+                                                            const <
+                                                              String,
+                                                              dynamic
+                                                            >{},
+                                                      );
+                                                  final statusStr =
+                                                      (p['status'] ??
+                                                              'not_boarded')
+                                                          .toString();
+                                                  final statusEnum =
+                                                      BoardingStatusCodec.fromJson(
+                                                        statusStr,
+                                                      );
+
+                                                  final arrivedLabel =
+                                                      isAfternoon
+                                                      ? 'Arrived (Home)'
+                                                      : 'Arrived (School)';
+
+                                                  return Container(
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.grey[50],
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            12,
+                                                          ),
+                                                    ),
+                                                    child: ListTile(
+                                                      contentPadding:
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 16,
+                                                            vertical: 8,
+                                                          ),
+                                                      leading: Container(
+                                                        width: 48,
+                                                        height: 48,
+                                                        decoration: BoxDecoration(
+                                                          color:
+                                                              statusEnum ==
+                                                                  BoardingStatus
+                                                                      .boarded
+                                                              ? Colors.green
+                                                                    .withValues(
+                                                                      alpha:
+                                                                          0.2,
+                                                                    )
+                                                              : statusEnum ==
+                                                                    BoardingStatus
+                                                                        .alighted
+                                                              ? Colors.blue
+                                                                    .withValues(
+                                                                      alpha:
+                                                                          0.2,
+                                                                    )
+                                                              : statusEnum ==
+                                                                    BoardingStatus
+                                                                        .absent
+                                                              ? Colors.orange
+                                                                    .withValues(
+                                                                      alpha:
+                                                                          0.2,
+                                                                    )
+                                                              : Colors.grey
+                                                                    .withValues(
+                                                                      alpha:
+                                                                          0.2,
+                                                                    ),
+                                                          shape:
+                                                              BoxShape.circle,
+                                                        ),
+                                                        child: Icon(
+                                                          statusEnum ==
+                                                                  BoardingStatus
+                                                                      .boarded
+                                                              ? Icons
+                                                                    .check_circle
+                                                              : statusEnum ==
+                                                                    BoardingStatus
+                                                                        .alighted
+                                                              ? Icons.flag
+                                                              : statusEnum ==
+                                                                    BoardingStatus
+                                                                        .absent
+                                                              ? Icons
+                                                                    .remove_circle
+                                                              : Icons
+                                                                    .radio_button_unchecked,
+                                                          color:
+                                                              statusEnum ==
+                                                                  BoardingStatus
+                                                                      .boarded
+                                                              ? Colors.green
+                                                              : statusEnum ==
+                                                                    BoardingStatus
+                                                                        .alighted
+                                                              ? Colors.blue
+                                                              : statusEnum ==
+                                                                    BoardingStatus
+                                                                        .absent
+                                                              ? Colors.orange
+                                                              : Colors.grey,
+                                                          size: 28,
+                                                        ),
+                                                      ),
+                                                      title: Text(
+                                                        studentName,
+                                                        style: const TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                        ),
+                                                        maxLines: 2,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                      ),
+                                                      subtitle: Text(
+                                                        'Status: $statusStr',
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                      ),
+                                                      trailing: Row(
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
+                                                        children: [
+                                                          if (parentPhone
+                                                              .isNotEmpty)
+                                                            IconButton(
+                                                              icon: const Icon(
+                                                                Icons.phone,
+                                                              ),
+                                                              color:
+                                                                  Colors.green,
+                                                              onPressed: () =>
+                                                                  _launchCall(
+                                                                    parentPhone,
+                                                                  ),
+                                                            ),
+                                                          PopupMenuButton<
+                                                            String
+                                                          >(
+                                                            onSelected: (v) async {
+                                                              final next =
+                                                                  BoardingStatusCodec.fromJson(
+                                                                    v,
+                                                                  );
+                                                              await _tripService
+                                                                  .updatePassengerStatus(
+                                                                    tripId,
+                                                                    studentId,
+                                                                    next,
+                                                                  );
+
+                                                              try {
+                                                                final studentSnap = await FirebaseFirestore
+                                                                    .instance
+                                                                    .collection(
+                                                                      'drivers',
+                                                                    )
+                                                                    .doc(
+                                                                      widget
+                                                                          .driverId,
+                                                                    )
+                                                                    .collection(
+                                                                      'students',
+                                                                    )
+                                                                    .doc(
+                                                                      studentId,
+                                                                    )
+                                                                    .get();
+                                                                final parentId =
+                                                                    (studentSnap.data()?['parent_id'] ??
+                                                                            '')
+                                                                        .toString();
+                                                                final studentName =
+                                                                    (studentSnap.data()?['student_name'] ??
+                                                                            studentId)
+                                                                        .toString();
+                                                                if (parentId
+                                                                    .isNotEmpty) {
+                                                                  final label = switch (next) {
+                                                                    BoardingStatus
+                                                                        .notBoarded =>
+                                                                      'Not Boarded',
+                                                                    BoardingStatus
+                                                                        .boarded =>
+                                                                      'Boarded',
+                                                                    BoardingStatus
+                                                                        .alighted =>
+                                                                      'Arrived',
+                                                                    BoardingStatus
+                                                                        .absent =>
+                                                                      'Absent',
+                                                                  };
+                                                                  await _notifications.createUnique(
+                                                                    notificationId:
+                                                                        'boarding_${tripId}_${studentId}_${BoardingStatusCodec.toJson(next)}',
+                                                                    userId:
+                                                                        parentId,
+                                                                    type:
+                                                                        'boarding',
+                                                                    message:
+                                                                        '$studentName: $label',
+                                                                  );
+                                                                }
+                                                              } catch (_) {}
+                                                            },
+                                                            icon: const Icon(
+                                                              Icons.more_vert,
+                                                            ),
+                                                            itemBuilder: (_) => [
+                                                              const PopupMenuItem(
+                                                                value:
+                                                                    'not_boarded',
+                                                                child: Text(
+                                                                  'Not Boarded',
+                                                                ),
+                                                              ),
+                                                              const PopupMenuItem(
+                                                                value:
+                                                                    'boarded',
+                                                                child: Text(
+                                                                  'Boarded',
+                                                                ),
+                                                              ),
+                                                              PopupMenuItem(
+                                                                value:
+                                                                    'alighted',
+                                                                child: Text(
+                                                                  arrivedLabel,
+                                                                ),
+                                                              ),
+                                                              const PopupMenuItem(
+                                                                value: 'absent',
+                                                                child: Text(
+                                                                  'Absent',
+                                                                ),
+                                                              ),
+                                                            ],
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  );
+                                                },
+                                              ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 );
               },
             );
           },
-        ),
-      ),
+        );
+      },
     );
   }
 }
