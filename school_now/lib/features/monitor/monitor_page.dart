@@ -51,7 +51,10 @@ class _MonitorPageState extends State<MonitorPage> {
   void initState() {
     super.initState();
     // SRS FR-PA-5.6: reset to Attending daily unless parent sets otherwise.
-    _parentService.ensureAttendanceDefaultForToday(parentId: widget.parentId, childId: widget.childDoc.id);
+    _parentService.ensureAttendanceDefaultForToday(
+      parentId: widget.parentId,
+      childId: widget.childDoc.id,
+    );
   }
 
   @override
@@ -60,25 +63,38 @@ class _MonitorPageState extends State<MonitorPage> {
     final live = TripLiveLocationService();
     final trips = TripReadService();
 
-    final childRef = db.collection('parents').doc(widget.parentId).collection('children').doc(widget.childDoc.id);
+    final childRef = db
+        .collection('parents')
+        .doc(widget.parentId)
+        .collection('children')
+        .doc(widget.childDoc.id);
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: _parentService.streamParent(widget.parentId),
       builder: (context, parentSnap) {
         final parent = parentSnap.data?.data() ?? const <String, dynamic>{};
-        final notif = (parent['notifications'] as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
-        final proximityAlertEnabled = (notif['proximity_alert'] as bool?) ?? true;
+        final notif =
+            (parent['notifications'] as Map?)?.cast<String, dynamic>() ??
+            const <String, dynamic>{};
+        final proximityAlertEnabled =
+            (notif['proximity_alert'] as bool?) ?? true;
 
         return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
           stream: childRef.snapshots(),
           builder: (context, childSnap) {
             final child = childSnap.data?.data() ?? widget.childDoc.data();
-            final assignedDriver = (child['assigned_driver_id'] ?? '').toString();
+            final assignedDriver = (child['assigned_driver_id'] ?? '')
+                .toString();
             if (assignedDriver.isEmpty) {
-              return const Center(child: Text('No driver assigned. Go to Drivers to request one.'));
+              return const Center(
+                child: Text(
+                  'No driver assigned. Go to Drivers to request one.',
+                ),
+              );
             }
 
-            final attendanceOverride = (child['attendance_override'] ?? 'attending').toString();
+            final attendanceOverride =
+                (child['attendance_override'] ?? 'attending').toString();
             final attending = attendanceOverride != 'absent';
 
             return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -97,13 +113,16 @@ class _MonitorPageState extends State<MonitorPage> {
                       Card(
                         child: SwitchListTile(
                           title: const Text('Attending today'),
-                          subtitle: const Text('Set to Absent if not riding today'),
-                          value: attending,
-                          onChanged: (v) => _parentService.setAttendanceForToday(
-                            parentId: widget.parentId,
-                            childId: widget.childDoc.id,
-                            attending: v,
+                          subtitle: const Text(
+                            'Set to Absent if not riding today',
                           ),
+                          value: attending,
+                          onChanged: (v) =>
+                              _parentService.setAttendanceForToday(
+                                parentId: widget.parentId,
+                                childId: widget.childDoc.id,
+                                attending: v,
+                              ),
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -116,16 +135,24 @@ class _MonitorPageState extends State<MonitorPage> {
                   stream: trips.streamTrip(tripId),
                   builder: (context, tripSnap) {
                     final trip = tripSnap.data?.data();
-                    final passengers = (trip?['passengers'] as List?)?.cast<Map>() ?? const <Map>[];
+                    final passengers =
+                        (trip?['passengers'] as List?)?.cast<Map>() ??
+                        const <Map>[];
                     final p = passengers
                         .map((e) => e.cast<String, dynamic>())
                         .firstWhere(
-                          (x) => (x['student_id'] ?? '').toString() == widget.childDoc.id,
+                          (x) =>
+                              (x['student_id'] ?? '').toString() ==
+                              widget.childDoc.id,
                           orElse: () => const <String, dynamic>{},
                         );
-                    final fallbackStatus = BoardingStatusCodec.fromJson((p['status'] ?? 'not_boarded').toString());
+                    final fallbackStatus = BoardingStatusCodec.fromJson(
+                      (p['status'] ?? 'not_boarded').toString(),
+                    );
 
-                    final statusRef = FirebaseDatabase.instance.ref('boarding_status/$tripId/${widget.childDoc.id}');
+                    final statusRef = FirebaseDatabase.instance.ref(
+                      'boarding_status/$tripId/${widget.childDoc.id}',
+                    );
 
                     return StreamBuilder<DatabaseEvent>(
                       stream: statusRef.onValue,
@@ -157,19 +184,35 @@ class _MonitorPageState extends State<MonitorPage> {
                               }
                             }
 
-                            final pickup = MonitorPage._latLngFromMap((child['pickup_location'] as Map?)?.cast<String, dynamic>());
+                            final pickup = MonitorPage._latLngFromMap(
+                              (child['pickup_location'] as Map?)
+                                  ?.cast<String, dynamic>(),
+                            );
 
-                            if (proximityAlertEnabled && tripId.isNotEmpty && pickup != null && driverPoint != null) {
-                              final meters = const Distance()(pickup, driverPoint);
-                              if (meters <= 200 && _proximityNotifiedTripId != tripId) {
+                            if (proximityAlertEnabled &&
+                                tripId.isNotEmpty &&
+                                pickup != null &&
+                                driverPoint != null) {
+                              final meters = const Distance()(
+                                pickup,
+                                driverPoint,
+                              );
+                              if (meters <= 200 &&
+                                  _proximityNotifiedTripId != tripId) {
                                 _proximityNotifiedTripId = tripId;
-                                final childName = (child['child_name'] ?? 'Student').toString();
-                                WidgetsBinding.instance.addPostFrameCallback((_) {
+                                final childName =
+                                    (child['child_name'] ?? 'Student')
+                                        .toString();
+                                WidgetsBinding.instance.addPostFrameCallback((
+                                  _,
+                                ) {
                                   _notificationService.createUnique(
-                                    notificationId: 'proximity_${tripId}_${widget.childDoc.id}',
+                                    notificationId:
+                                        'proximity_${tripId}_${widget.childDoc.id}',
                                     userId: widget.parentId,
                                     type: 'proximity',
-                                    message: 'Driver is near pickup for $childName',
+                                    message:
+                                        'Driver is near pickup for $childName',
                                   );
                                 });
                               }
@@ -181,17 +224,22 @@ class _MonitorPageState extends State<MonitorPage> {
                                 Card(
                                   child: SwitchListTile(
                                     title: const Text('Attending today'),
-                                    subtitle: const Text('Set to Absent if not riding today'),
-                                    value: attending,
-                                    onChanged: (v) => _parentService.setAttendanceForToday(
-                                      parentId: widget.parentId,
-                                      childId: widget.childDoc.id,
-                                      attending: v,
+                                    subtitle: const Text(
+                                      'Set to Absent if not riding today',
                                     ),
+                                    value: attending,
+                                    onChanged: (v) =>
+                                        _parentService.setAttendanceForToday(
+                                          parentId: widget.parentId,
+                                          childId: widget.childDoc.id,
+                                          attending: v,
+                                        ),
                                   ),
                                 ),
                                 const SizedBox(height: 12),
-                                Text('Status: ${MonitorPage._statusLabel(status)}'),
+                                Text(
+                                  'Status: ${MonitorPage._statusLabel(status)}',
+                                ),
                                 const SizedBox(height: 12),
                                 SizedBox(
                                   height: 260,
@@ -200,14 +248,20 @@ class _MonitorPageState extends State<MonitorPage> {
                                     child: FlutterMap(
                                       options: MapOptions(
                                         initialCenter: center,
-                                        initialZoom: driverPoint != null ? 15 : 2,
-                                        interactionOptions: const InteractionOptions(
-                                          flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
-                                        ),
+                                        initialZoom: driverPoint != null
+                                            ? 15
+                                            : 2,
+                                        interactionOptions:
+                                            const InteractionOptions(
+                                              flags:
+                                                  InteractiveFlag.all &
+                                                  ~InteractiveFlag.rotate,
+                                            ),
                                       ),
                                       children: [
                                         TileLayer(
-                                          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                          urlTemplate:
+                                              'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                                           userAgentPackageName: 'school_now',
                                         ),
                                         MarkerLayer(
@@ -217,14 +271,22 @@ class _MonitorPageState extends State<MonitorPage> {
                                                 point: pickup,
                                                 width: 44,
                                                 height: 44,
-                                                child: const Icon(Icons.home, color: Colors.black87, size: 34),
+                                                child: const Icon(
+                                                  Icons.home,
+                                                  color: Colors.black87,
+                                                  size: 34,
+                                                ),
                                               ),
                                             if (driverPoint != null)
                                               Marker(
                                                 point: driverPoint,
                                                 width: 44,
                                                 height: 44,
-                                                child: const Icon(Icons.directions_bus, color: Colors.blue, size: 38),
+                                                child: const Icon(
+                                                  Icons.directions_bus,
+                                                  color: Colors.blue,
+                                                  size: 38,
+                                                ),
                                               ),
                                           ],
                                         ),

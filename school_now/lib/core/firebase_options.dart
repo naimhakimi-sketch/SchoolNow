@@ -47,6 +47,7 @@ class DefaultFirebaseOptions {
     projectId: 'busnow-applications',
     authDomain: 'busnow-applications.firebaseapp.com',
     storageBucket: 'busnow-applications.firebasestorage.app',
+    databaseURL: 'https://busnow-applications-default-rtdb.firebaseio.com',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
@@ -55,6 +56,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '638876158882',
     projectId: 'busnow-applications',
     storageBucket: 'busnow-applications.firebasestorage.app',
+    databaseURL: 'https://busnow-applications-default-rtdb.firebaseio.com',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
@@ -64,6 +66,7 @@ class DefaultFirebaseOptions {
     projectId: 'busnow-applications',
     storageBucket: 'busnow-applications.firebasestorage.app',
     iosBundleId: 'com.example.schoolNow',
+    databaseURL: 'https://busnow-applications-default-rtdb.firebaseio.com',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
@@ -73,6 +76,7 @@ class DefaultFirebaseOptions {
     projectId: 'busnow-applications',
     storageBucket: 'busnow-applications.firebasestorage.app',
     iosBundleId: 'com.example.schoolNow',
+    databaseURL: 'https://busnow-applications-default-rtdb.firebaseio.com',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
@@ -82,5 +86,6 @@ class DefaultFirebaseOptions {
     projectId: 'busnow-applications',
     authDomain: 'busnow-applications.firebaseapp.com',
     storageBucket: 'busnow-applications.firebasestorage.app',
+    databaseURL: 'https://busnow-applications-default-rtdb.firebaseio.com',
   );
 }
