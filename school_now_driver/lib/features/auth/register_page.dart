@@ -21,6 +21,7 @@ class _RegisterPageState extends State<RegisterPage> {
   double? _homeLng;
   final _transportNumberController = TextEditingController();
   final _seatCapacityController = TextEditingController();
+  final _monthlyFeeController = TextEditingController();
 
   final _schoolNameController = TextEditingController();
   final _schoolLatController = TextEditingController();
@@ -43,6 +44,7 @@ class _RegisterPageState extends State<RegisterPage> {
     _addressController.dispose();
     _transportNumberController.dispose();
     _seatCapacityController.dispose();
+    _monthlyFeeController.dispose();
     _schoolNameController.dispose();
     _schoolLatController.dispose();
     _schoolLngController.dispose();
@@ -66,6 +68,7 @@ class _RegisterPageState extends State<RegisterPage> {
       final transportNumber = _transportNumberController.text.trim();
 
       final seatCapacity = int.tryParse(_seatCapacityController.text.trim());
+      final monthlyFee = double.tryParse(_monthlyFeeController.text.trim());
       final radiusKm = double.tryParse(_radiusKmController.text.trim());
       final schoolName = _schoolNameController.text.trim();
       final schoolLat = double.tryParse(_schoolLatController.text.trim());
@@ -76,12 +79,23 @@ class _RegisterPageState extends State<RegisterPage> {
       if (email.isEmpty) throw Exception('Email is required');
       if (contactNumber.isEmpty) throw Exception('Contact number is required');
       if (address.isEmpty) throw Exception('Home/Operator address is required');
-      if (transportNumber.isEmpty) throw Exception('Registered school transportation number is required');
-      if (seatCapacity == null || seatCapacity <= 0) throw Exception('Vehicle seat capacity must be a positive number');
+      if (transportNumber.isEmpty) {
+        throw Exception('Registered school transportation number is required');
+      }
+      if (seatCapacity == null || seatCapacity <= 0) {
+        throw Exception('Vehicle seat capacity must be a positive number');
+      }
+      if (monthlyFee == null || monthlyFee < 0) {
+        throw Exception('Monthly fee must be a valid number');
+      }
 
       if (schoolName.isEmpty) throw Exception('School name is required');
-      if (schoolLat == null || schoolLng == null) throw Exception('School latitude/longitude are required');
-      if (radiusKm == null || radiusKm <= 0) throw Exception('Service radius must be a positive number (km)');
+      if (schoolLat == null || schoolLng == null) {
+        throw Exception('School latitude/longitude are required');
+      }
+      if (radiusKm == null || radiusKm <= 0) {
+        throw Exception('Service radius must be a positive number (km)');
+      }
 
       if (_passwordController.text != _confirmController.text) {
         throw Exception('Passwords do not match');
@@ -96,6 +110,7 @@ class _RegisterPageState extends State<RegisterPage> {
         homeLng: _homeLng,
         transportNumber: transportNumber,
         seatCapacity: seatCapacity,
+        monthlyFee: monthlyFee,
         serviceAreaSchoolName: schoolName,
         serviceAreaSchoolLat: schoolLat,
         serviceAreaSchoolLng: schoolLng,
@@ -125,10 +140,8 @@ class _RegisterPageState extends State<RegisterPage> {
 
     final result = await Navigator.of(context).push<SchoolMapPickerResult>(
       MaterialPageRoute(
-        builder: (_) => SchoolMapPickerPage(
-          initialLat: initialLat,
-          initialLng: initialLng,
-        ),
+        builder: (_) =>
+            SchoolMapPickerPage(initialLat: initialLat, initialLng: initialLng),
       ),
     );
 
@@ -197,7 +210,9 @@ class _RegisterPageState extends State<RegisterPage> {
               ),
               TextField(
                 controller: _addressController,
-                decoration: const InputDecoration(labelText: 'Home/Operator Address (Starting Point)'),
+                decoration: const InputDecoration(
+                  labelText: 'Home/Operator Address (Starting Point)',
+                ),
                 textInputAction: TextInputAction.next,
               ),
               Align(
@@ -214,20 +229,35 @@ class _RegisterPageState extends State<RegisterPage> {
               ),
               TextField(
                 controller: _transportNumberController,
-                decoration: const InputDecoration(labelText: 'Registered School Transportation Number'),
+                decoration: const InputDecoration(
+                  labelText: 'Registered School Transportation Number',
+                ),
                 textInputAction: TextInputAction.next,
               ),
               TextField(
                 controller: _seatCapacityController,
-                decoration: const InputDecoration(labelText: 'Vehicle Seat Capacity'),
+                decoration: const InputDecoration(
+                  labelText: 'Vehicle Seat Capacity',
+                ),
                 keyboardType: TextInputType.number,
+                textInputAction: TextInputAction.next,
+              ),
+              TextField(
+                controller: _monthlyFeeController,
+                decoration: const InputDecoration(labelText: 'Monthly Fee'),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 textInputAction: TextInputAction.next,
               ),
 
               const SizedBox(height: 16),
               Align(
                 alignment: Alignment.centerLeft,
-                child: Text('Service Area', style: Theme.of(context).textTheme.titleMedium),
+                child: Text(
+                  'Service Area',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
               ),
               const SizedBox(height: 8),
               TextField(
@@ -240,8 +270,13 @@ class _RegisterPageState extends State<RegisterPage> {
                   Expanded(
                     child: TextField(
                       controller: _schoolLatController,
-                      decoration: const InputDecoration(labelText: 'School Lat'),
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                      decoration: const InputDecoration(
+                        labelText: 'School Lat',
+                      ),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                        signed: true,
+                      ),
                       textInputAction: TextInputAction.next,
                     ),
                   ),
@@ -249,8 +284,13 @@ class _RegisterPageState extends State<RegisterPage> {
                   Expanded(
                     child: TextField(
                       controller: _schoolLngController,
-                      decoration: const InputDecoration(labelText: 'School Lng'),
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                      decoration: const InputDecoration(
+                        labelText: 'School Lng',
+                      ),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                        signed: true,
+                      ),
                       textInputAction: TextInputAction.next,
                     ),
                   ),
@@ -266,7 +306,9 @@ class _RegisterPageState extends State<RegisterPage> {
               ),
               DropdownButtonFormField<String>(
                 initialValue: _serviceSide,
-                decoration: const InputDecoration(labelText: 'Side (North/South/East/West)'),
+                decoration: const InputDecoration(
+                  labelText: 'Side (North/South/East/West)',
+                ),
                 items: const [
                   DropdownMenuItem(value: 'north', child: Text('North')),
                   DropdownMenuItem(value: 'south', child: Text('South')),
@@ -285,7 +327,9 @@ class _RegisterPageState extends State<RegisterPage> {
               TextField(
                 controller: _radiusKmController,
                 decoration: const InputDecoration(labelText: 'Radius (km)'),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 textInputAction: TextInputAction.next,
               ),
 
@@ -298,25 +342,30 @@ class _RegisterPageState extends State<RegisterPage> {
               ),
               TextField(
                 controller: _confirmController,
-                decoration: const InputDecoration(labelText: 'Confirm Password'),
+                decoration: const InputDecoration(
+                  labelText: 'Confirm Password',
+                ),
                 obscureText: true,
               ),
 
               const SizedBox(height: 16),
-              if (_error != null) Text(_error!, style: const TextStyle(color: Colors.red)),
+              if (_error != null)
+                Text(_error!, style: const TextStyle(color: Colors.red)),
               const SizedBox(height: 8),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: _loading ? null : _register,
-                  child: _loading ? const CircularProgressIndicator() : const Text('Register'),
+                  child: _loading
+                      ? const CircularProgressIndicator()
+                      : const Text('Register'),
                 ),
               ),
               const SizedBox(height: 8),
               const Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  'Note: Profile becomes searchable to parents after verification.',
+                  'Note: Profile becomes searchable to parents after you enable visibility.',
                   style: TextStyle(fontSize: 12, color: Colors.grey),
                 ),
               ),

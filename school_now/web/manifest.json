@@ -1,6 +1,6 @@
 {
-    "name": "school_now",
-    "short_name": "school_now",
+    "name": "SchoolNow",
+    "short_name": "SchoolNow",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

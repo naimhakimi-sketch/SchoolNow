@@ -1,0 +1,23 @@
+name: firebase_hosting_apk_updater
+description: Check a Firebase Hosting manifest.json and install Android APK updates.
+version: 0.1.0
+publish_to: 'none'
+
+environment:
+  sdk: ^3.10.0
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.2
+  crypto: ^3.0.5
+  path_provider: ^2.1.5
+  package_info_plus: ^8.1.2
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.schoolnow.firebase_hosting_apk_updater
+        pluginClass: FirebaseHostingApkUpdaterPlugin

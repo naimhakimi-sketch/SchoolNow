@@ -17,7 +17,10 @@ class AuthService {
     return _auth.signInWithEmailAndPassword(email: email, password: password);
   }
 
-  Future<UserCredential> signInWithIcNumber(String icNumber, String password) async {
+  Future<UserCredential> signInWithIcNumber(
+    String icNumber,
+    String password,
+  ) async {
     final raw = icNumber.trim();
     final normalized = _normalizeIc(raw);
 
@@ -32,7 +35,11 @@ class AuthService {
 
       // Backward compatibility: older records may not have ic_number_normalized.
       if (snap.docs.isEmpty) {
-        snap = await _db.collection('drivers').where('ic_number', isEqualTo: raw).limit(1).get();
+        snap = await _db
+            .collection('drivers')
+            .where('ic_number', isEqualTo: raw)
+            .limit(1)
+            .get();
       }
     } on FirebaseException catch (e) {
       // Common pitfall: Firestore rules often require authentication, but this lookup happens pre-auth.
@@ -74,6 +81,7 @@ class AuthService {
     double? homeLng,
     required String transportNumber,
     required int seatCapacity,
+    required double monthlyFee,
     required String serviceAreaSchoolName,
     required double serviceAreaSchoolLat,
     required double serviceAreaSchoolLng,
@@ -85,8 +93,16 @@ class AuthService {
     final normalizedIc = _normalizeIc(rawIc);
 
     final existing = await Future.wait([
-      _db.collection('drivers').where('ic_number', isEqualTo: rawIc).limit(1).get(),
-      _db.collection('drivers').where('ic_number_normalized', isEqualTo: normalizedIc).limit(1).get(),
+      _db
+          .collection('drivers')
+          .where('ic_number', isEqualTo: rawIc)
+          .limit(1)
+          .get(),
+      _db
+          .collection('drivers')
+          .where('ic_number_normalized', isEqualTo: normalizedIc)
+          .limit(1)
+          .get(),
     ]);
     if (existing.any((s) => s.docs.isNotEmpty)) {
       throw FirebaseAuthException(
@@ -95,7 +111,10 @@ class AuthService {
       );
     }
 
-    final cred = await _auth.createUserWithEmailAndPassword(email: email, password: password);
+    final cred = await _auth.createUserWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
     await cred.user?.updateDisplayName(name);
     final uid = cred.user!.uid;
     final driverDoc = <String, dynamic>{
@@ -107,6 +126,7 @@ class AuthService {
       'address': address,
       'transport_number': transportNumber,
       'seat_capacity': seatCapacity,
+      'monthly_fee': monthlyFee,
       'service_area': {
         'school_name': serviceAreaSchoolName,
         'school_lat': serviceAreaSchoolLat,
@@ -115,16 +135,13 @@ class AuthService {
         'radius_km': serviceAreaRadiusKm,
       },
       'role': 'driver',
-      'is_verified': false,
+      'is_verified': true,
       'is_searchable': false,
       'created_at': FieldValue.serverTimestamp(),
     };
 
     if (homeLat != null && homeLng != null) {
-      driverDoc['home_location'] = {
-        'lat': homeLat,
-        'lng': homeLng,
-      };
+      driverDoc['home_location'] = {'lat': homeLat, 'lng': homeLng};
     }
 
     await _db.collection('drivers').doc(uid).set(driverDoc);

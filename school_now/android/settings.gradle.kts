@@ -1,3 +1,5 @@
+rootProject.name = "school_now_android"
+
 pluginManagement {
     val flutterSdkPath =
         run {

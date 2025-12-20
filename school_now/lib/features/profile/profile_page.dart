@@ -6,7 +6,9 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../services/auth_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/parent_service.dart';
+import '../children/edit_child_page.dart';
 import 'edit_profile_page.dart';
+import 'notification_simulator_page.dart';
 
 class ProfilePage extends StatelessWidget {
   final String parentId;
@@ -23,63 +25,162 @@ class ProfilePage extends StatelessWidget {
     final auth = ParentAuthService();
     final parentService = ParentService();
     final notificationService = NotificationService();
-    final child = childDoc.data();
-    final assignedDriver = (child['assigned_driver_id'] ?? '').toString();
+
+    final childRef = parentService.childrenRef(parentId).doc(childDoc.id);
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: parentService.streamParent(parentId),
       builder: (context, snap) {
         final data = snap.data?.data() ?? {};
-        final name = (data['name'] ?? FirebaseAuth.instance.currentUser?.displayName ?? '').toString();
-        final email = (data['email'] ?? FirebaseAuth.instance.currentUser?.email ?? '').toString();
+        final name =
+            (data['name'] ??
+                    FirebaseAuth.instance.currentUser?.displayName ??
+                    '')
+                .toString();
+        final email =
+            (data['email'] ?? FirebaseAuth.instance.currentUser?.email ?? '')
+                .toString();
         final contact = (data['contact_number'] ?? '').toString();
         final address = (data['address'] ?? '').toString();
 
-        final notif = (data['notifications'] as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
+        final notif =
+            (data['notifications'] as Map?)?.cast<String, dynamic>() ??
+            const <String, dynamic>{};
         final proximityAlert = (notif['proximity_alert'] as bool?) ?? true;
         final boardingAlert = (notif['boarding_alert'] as bool?) ?? true;
 
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Row(
+        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: childRef.snapshots(),
+          builder: (context, childSnap) {
+            final child = childSnap.data?.data() ?? childDoc.data();
+            final assignedDriver = (child['assigned_driver_id'] ?? '').toString();
+
+            return ListView(
+              padding: const EdgeInsets.all(16),
               children: [
-                Expanded(child: Text('Profile', style: Theme.of(context).textTheme.headlineSmall)),
-                IconButton(
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => EditProfilePage(
-                          parentId: parentId,
-                          name: name,
-                          contactNumber: contact,
-                          address: address,
-                          addressLocked: assignedDriver.isNotEmpty,
-                        ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Profile',
+                        style: Theme.of(context).textTheme.headlineSmall,
                       ),
-                    );
-                  },
-                  icon: const Icon(Icons.edit),
+                    ),
+                    IconButton(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => EditProfilePage(
+                              parentId: parentId,
+                              name: name,
+                              contactNumber: contact,
+                              address: address,
+                              addressLocked: assignedDriver.isNotEmpty,
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.edit),
+                    ),
+                  ],
                 ),
-              ],
-            ),
             const SizedBox(height: 12),
             ListTile(title: const Text('Name'), subtitle: Text(name)),
             ListTile(title: const Text('Email'), subtitle: Text(email)),
-            if (contact.isNotEmpty) ListTile(title: const Text('Contact'), subtitle: Text(contact)),
+            if (contact.isNotEmpty)
+              ListTile(title: const Text('Contact'), subtitle: Text(contact)),
             ListTile(
               title: const Text('Address'),
               subtitle: Text(address.isEmpty ? '(not set)' : address),
               trailing: assignedDriver.isNotEmpty ? const Text('Locked') : null,
             ),
             const SizedBox(height: 12),
-            Text('Student QR (for offline use):', style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              'Student',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Card(
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.school_outlined),
+                    title: Text((child['child_name'] ?? 'Student').toString()),
+                    subtitle: Text(
+                      [
+                        if (((child['child_ic'] ?? '').toString()).trim().isNotEmpty)
+                          'IC: ${(child['child_ic'] ?? '').toString()}',
+                        if (((child['school_name'] ?? '').toString()).trim().isNotEmpty)
+                          'School: ${(child['school_name'] ?? '').toString()}',
+                        (() {
+                          final pickup = (child['pickup_location'] as Map?)?.cast<String, dynamic>();
+                          final lat = (pickup?['lat'] as num?)?.toDouble();
+                          final lng = (pickup?['lng'] as num?)?.toDouble();
+                          if (lat == null || lng == null) return null;
+                          return 'Pickup: ${lat.toStringAsFixed(6)}, ${lng.toStringAsFixed(6)}';
+                        })(),
+                      ].whereType<String>().join('\n'),
+                    ),
+                    isThreeLine: true,
+                    trailing: const Icon(Icons.edit),
+                    onTap: () {
+                      final pickup = (child['pickup_location'] as Map?)?.cast<String, dynamic>();
+                      final pickupLat = (pickup?['lat'] as num?)?.toDouble();
+                      final pickupLng = (pickup?['lng'] as num?)?.toDouble();
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => EditChildPage(
+                            parentId: parentId,
+                            childId: childDoc.id,
+                            initialChildName: (child['child_name'] ?? '').toString(),
+                            initialChildIc: (child['child_ic'] ?? '').toString(),
+                            initialSchoolName: (child['school_name'] ?? '').toString(),
+                            initialSchoolLat: (child['school_lat'] as num?)?.toDouble(),
+                            initialSchoolLng: (child['school_lng'] as num?)?.toDouble(),
+                            initialPickupLat: pickupLat,
+                            initialPickupLng: pickupLng,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 12),
+            Text(
+              'Student QR (for offline use):',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 8),
             Center(child: QrImageView(data: childDoc.id, size: 160)),
 
             const SizedBox(height: 18),
-            Text('Notifications', style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              'Notifications',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 8),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.notifications),
+                title: const Text('Notification Simulator'),
+                subtitle: const Text('Create sample notifications for testing'),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => NotificationSimulatorPage(
+                        parentId: parentId,
+                        childId: childDoc.id,
+                        childName: (child['child_name'] ?? 'child').toString(),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+
             Card(
               child: Column(
                 children: [
@@ -141,8 +242,14 @@ class ProfilePage extends StatelessWidget {
                   filtered.sort((a, b) {
                     final ma = (a.data() as Map).cast<String, dynamic>();
                     final mb = (b.data() as Map).cast<String, dynamic>();
-                    final ta = (ma['created_at'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
-                    final tb = (mb['created_at'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
+                    final ta =
+                        (ma['created_at'] as Timestamp?)
+                            ?.millisecondsSinceEpoch ??
+                        0;
+                    final tb =
+                        (mb['created_at'] as Timestamp?)
+                            ?.millisecondsSinceEpoch ??
+                        0;
                     return tb.compareTo(ta);
                   });
 
@@ -160,18 +267,24 @@ class ProfilePage extends StatelessWidget {
                   int? daysLeft;
                   if (due != null) {
                     final now = DateTime.now();
-                    daysLeft = due.difference(DateTime(now.year, now.month, now.day)).inDays;
-                    dueText = '${due.year.toString().padLeft(4, '0')}-${due.month.toString().padLeft(2, '0')}-${due.day.toString().padLeft(2, '0')}';
+                    daysLeft = due
+                        .difference(DateTime(now.year, now.month, now.day))
+                        .inDays;
+                    dueText =
+                        '${due.year.toString().padLeft(4, '0')}-${due.month.toString().padLeft(2, '0')}-${due.day.toString().padLeft(2, '0')}';
 
                     // SRS FR-PA-5.8: reminders 2 days and 1 day before due date.
-                    if ((daysLeft == 2 || daysLeft == 1) && status != 'pending') {
-                      final notifId = 'billing_${childDoc.id}_${dueText}_${daysLeft}d';
+                    if ((daysLeft == 2 || daysLeft == 1) &&
+                        status == 'pending') {
+                      final notifId =
+                          'billing_${childDoc.id}_${dueText}_${daysLeft}d';
                       WidgetsBinding.instance.addPostFrameCallback((_) {
                         notificationService.createUnique(
                           notificationId: notifId,
                           userId: parentId,
                           type: 'billing',
-                          message: 'Payment due in $daysLeft day(s) for ${(child['child_name'] ?? 'child').toString()}',
+                          message:
+                              'Payment due in $daysLeft day(s) for ${(child['child_name'] ?? 'child').toString()}',
                         );
                       });
                     }
@@ -188,7 +301,10 @@ class ProfilePage extends StatelessWidget {
                           ListTile(
                             title: const Text('Next due date'),
                             subtitle: Text(dueText),
-                            trailing: (daysLeft != null && daysLeft >= 0 && daysLeft <= 5)
+                            trailing:
+                                (daysLeft != null &&
+                                    daysLeft >= 0 &&
+                                    daysLeft <= 5)
                                 ? Text('$daysLeft days')
                                 : null,
                           ),
@@ -213,7 +329,8 @@ class ProfilePage extends StatelessWidget {
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
                     itemCount: docs.length,
-                    separatorBuilder: (context, index) => const Divider(height: 1),
+                    separatorBuilder: (context, index) =>
+                        const Divider(height: 1),
                     itemBuilder: (context, i) {
                       final d = docs[i];
                       final m = (d.data() as Map).cast<String, dynamic>();
@@ -223,7 +340,9 @@ class ProfilePage extends StatelessWidget {
                       return ListTile(
                         title: Text(message.isEmpty ? '(no message)' : message),
                         subtitle: type.isEmpty ? null : Text(type),
-                        trailing: read ? null : const Icon(Icons.circle, size: 10),
+                        trailing: read
+                            ? null
+                            : const Icon(Icons.circle, size: 10),
                         onTap: () => notificationService.markRead(d.id),
                       );
                     },
@@ -243,7 +362,9 @@ class ProfilePage extends StatelessWidget {
                 label: const Text('Logout'),
               ),
             ),
-          ],
+              ],
+            );
+          },
         );
       },
     );

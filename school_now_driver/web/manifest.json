@@ -1,6 +1,6 @@
 {
-    "name": "school_now_driver",
-    "short_name": "school_now_driver",
+    "name": "SchoolNow: Driver",
+    "short_name": "SchoolNowDriver",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

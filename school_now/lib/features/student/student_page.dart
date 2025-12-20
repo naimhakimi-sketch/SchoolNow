@@ -25,14 +25,43 @@ class _StudentPageState extends State<StudentPage> {
   bool _scanning = false;
   String? _error;
 
+  String _formatScanError(Object error) {
+    if (error is FirebaseException) {
+      final msg = (error.message == null || error.message!.trim().isEmpty)
+          ? 'No message'
+          : error.message!.trim();
+      return '[${error.plugin}/${error.code}] $msg';
+    }
+    return error.toString();
+  }
+
+  void _validateTripIdFromQr(String tripId) {
+    final v = tripId.trim();
+    if (v.isEmpty) {
+      throw const FormatException('Invalid QR: empty trip id');
+    }
+    // A Firestore document id cannot contain '/'.
+    // If a URL or path was encoded, this prevents opaque native errors.
+    if (v.contains('/')) {
+      throw const FormatException(
+        'Invalid QR: expected a trip id (not a path or URL)',
+      );
+    }
+  }
+
   Future<void> _handleScan(String tripId) async {
     setState(() {
       _error = null;
     });
 
     try {
+      _validateTripIdFromQr(tripId);
+
       // Decide the next status based on the current passenger status.
-      final snap = await FirebaseFirestore.instance.collection('trips').doc(tripId).get();
+      final snap = await FirebaseFirestore.instance
+          .collection('trips')
+          .doc(tripId)
+          .get();
       final trip = snap.data();
       if (trip == null) throw Exception('Trip not found');
 
@@ -44,7 +73,9 @@ class _StudentPageState extends State<StudentPage> {
             orElse: () => const <String, dynamic>{},
           );
 
-      final current = BoardingStatusCodec.fromJson((me['status'] ?? 'not_boarded').toString());
+      final current = BoardingStatusCodec.fromJson(
+        (me['status'] ?? 'not_boarded').toString(),
+      );
 
       // Simple scan progression: not_boarded -> boarded -> alighted.
       final next = switch (current) {
@@ -62,15 +93,22 @@ class _StudentPageState extends State<StudentPage> {
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Updated status: ${BoardingStatusCodec.toJson(next)}')),
+        SnackBar(
+          content: Text('Updated status: ${BoardingStatusCodec.toJson(next)}'),
+        ),
       );
 
       setState(() {
         _scanning = false;
       });
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint(
+        'Student QR scan failed. tripId=$tripId studentId=${widget.childDoc.id}',
+      );
+      debugPrint('Error: $e');
+      debugPrintStack(stackTrace: st);
       setState(() {
-        _error = 'Scan failed: $e';
+        _error = 'Scan failed: ${_formatScanError(e)}';
       });
     }
   }
@@ -86,18 +124,22 @@ class _StudentPageState extends State<StudentPage> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Text('Student: $childName', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 12),
-        Text('My QR (show to driver):', style: Theme.of(context).textTheme.bodyMedium),
-        const SizedBox(height: 8),
-        Center(
-          child: QrImageView(
-            data: personalQrPayload,
-            size: 180,
-          ),
+        Text(
+          'Student: $childName',
+          style: Theme.of(context).textTheme.titleMedium,
         ),
+        const SizedBox(height: 12),
+        Text(
+          'My QR (show to driver):',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 8),
+        Center(child: QrImageView(data: personalQrPayload, size: 180)),
         const SizedBox(height: 24),
-        Text('Scan Driver Session QR to update boarding status:', style: Theme.of(context).textTheme.bodyMedium),
+        Text(
+          'Scan Driver Session QR to update boarding status:',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
         const SizedBox(height: 8),
         SizedBox(
           width: double.infinity,

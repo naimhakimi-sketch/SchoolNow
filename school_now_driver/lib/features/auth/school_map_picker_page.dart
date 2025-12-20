@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:http/http.dart' as http;
+import 'package:location/location.dart';
 import 'dart:convert';
 
 class SchoolMapPickerResult {
@@ -27,6 +28,7 @@ class SchoolMapPickerPage extends StatefulWidget {
 
 class _SchoolMapPickerPageState extends State<SchoolMapPickerPage> {
   final _mapController = MapController();
+  final Location _location = Location();
   final _searchController = TextEditingController();
   LatLng? _selected;
   bool _searching = false;
@@ -135,6 +137,34 @@ class _SchoolMapPickerPageState extends State<SchoolMapPickerPage> {
     }
   }
 
+  Future<void> _centerOnMyLocation() async {
+    try {
+      bool serviceEnabled = await _location.serviceEnabled();
+      if (!serviceEnabled) {
+        serviceEnabled = await _location.requestService();
+        if (!serviceEnabled) return;
+      }
+      PermissionStatus permission = await _location.hasPermission();
+      if (permission == PermissionStatus.denied) {
+        permission = await _location.requestPermission();
+        if (permission != PermissionStatus.granted) return;
+      }
+
+      final loc = await _location.getLocation();
+      final lat = (loc.latitude ?? 0).toDouble();
+      final lng = (loc.longitude ?? 0).toDouble();
+      if (!mounted) return;
+
+      _mapController.move(LatLng(lat, lng), 15);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Location error: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final selected = _selected;
@@ -208,6 +238,14 @@ class _SchoolMapPickerPageState extends State<SchoolMapPickerPage> {
                   ],
                 ),
               ),
+            ),
+          ),
+          Positioned(
+            right: 12,
+            bottom: 110,
+            child: FloatingActionButton.small(
+              onPressed: _centerOnMyLocation,
+              child: const Icon(Icons.my_location),
             ),
           ),
           Positioned(

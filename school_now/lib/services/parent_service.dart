@@ -73,6 +73,66 @@ class ParentService {
     return ref;
   }
 
+  Future<void> updateChild({
+    required String parentId,
+    required String childId,
+    required String childName,
+    required String childIcNumber,
+    required String schoolName,
+    double? schoolLat,
+    double? schoolLng,
+    double? pickupLat,
+    double? pickupLng,
+  }) async {
+    final normalizedChildIc = childIcNumber.replaceAll(RegExp(r'[^0-9A-Za-z]'), '').toUpperCase();
+
+    final childRef = childrenRef(parentId).doc(childId);
+    final snap = await childRef.get();
+    final existing = snap.data() ?? const <String, dynamic>{};
+    final assignedDriverId = (existing['assigned_driver_id'] ?? '').toString();
+
+    final batch = _db.batch();
+    batch.set(
+      childRef,
+      {
+        'child_name': childName,
+        'child_ic': childIcNumber.trim(),
+        'child_ic_normalized': normalizedChildIc,
+        'school_name': schoolName.trim(),
+        'school_lat': schoolLat,
+        'school_lng': schoolLng,
+        'pickup_location': (pickupLat != null && pickupLng != null)
+            ? {
+                'lat': pickupLat,
+                'lng': pickupLng,
+              }
+            : null,
+        'updated_at': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+
+    if (assignedDriverId.isNotEmpty) {
+      final driverStudentRef = _db.collection('drivers').doc(assignedDriverId).collection('students').doc(childId);
+      batch.set(
+        driverStudentRef,
+        {
+          'student_name': childName,
+          'pickup_location': (pickupLat != null && pickupLng != null)
+              ? {
+                  'lat': pickupLat,
+                  'lng': pickupLng,
+                }
+              : null,
+          'updated_at': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+    }
+
+    await batch.commit();
+  }
+
   Future<void> ensureAttendanceDefaultForToday({
     required String parentId,
     required String childId,

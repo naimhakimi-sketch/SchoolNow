@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:location/location.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -36,6 +37,18 @@ class _DrivePageState extends State<DrivePage> {
   final _routingService = OsrmRoutingService();
   final _notifications = NotificationService();
   final _mapController = MapController();
+  final Location _deviceLocation = Location();
+
+  LatLng? _currentRouteStart;
+  bool _loadingCurrentRouteStart = false;
+
+  String _todayYmd() {
+    final now = DateTime.now();
+    final y = now.year.toString().padLeft(4, '0');
+    final m = now.month.toString().padLeft(2, '0');
+    final d = now.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
+  }
 
   bool _loadingAction = false;
   String? _error;
@@ -46,9 +59,7 @@ class _DrivePageState extends State<DrivePage> {
 
   String? _routedKey;
   List<LatLng>? _routedPolyline;
-  List<String> _routedSteps = const [];
   bool _routingInFlight = false;
-  String? _routingStatusText;
 
   String _routeLabel(String routeType) {
     switch (routeType) {
@@ -81,6 +92,69 @@ class _DrivePageState extends State<DrivePage> {
     if (trimmed.isEmpty) return;
     final uri = Uri(scheme: 'tel', path: trimmed);
     await launchUrl(uri);
+  }
+
+  Future<void> _centerOnMyLocation() async {
+    try {
+      bool serviceEnabled = await _deviceLocation.serviceEnabled();
+      if (!serviceEnabled) {
+        serviceEnabled = await _deviceLocation.requestService();
+        if (!serviceEnabled) return;
+      }
+
+      PermissionStatus permission = await _deviceLocation.hasPermission();
+      if (permission == PermissionStatus.denied) {
+        permission = await _deviceLocation.requestPermission();
+        if (permission != PermissionStatus.granted) return;
+      }
+
+      final loc = await _deviceLocation.getLocation();
+      final lat = (loc.latitude ?? 0).toDouble();
+      final lng = (loc.longitude ?? 0).toDouble();
+      if (!mounted) return;
+
+      _mapController.move(LatLng(lat, lng), 16);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Location error: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _ensureCurrentRouteStartLoaded() async {
+    if (_currentRouteStart != null) return;
+    if (_loadingCurrentRouteStart) return;
+    _loadingCurrentRouteStart = true;
+
+    try {
+      bool serviceEnabled = await _deviceLocation.serviceEnabled();
+      if (!serviceEnabled) {
+        serviceEnabled = await _deviceLocation.requestService();
+        if (!serviceEnabled) return;
+      }
+
+      PermissionStatus permission = await _deviceLocation.hasPermission();
+      if (permission == PermissionStatus.denied) {
+        permission = await _deviceLocation.requestPermission();
+        if (permission != PermissionStatus.granted) return;
+      }
+
+      final loc = await _deviceLocation.getLocation();
+      final lat = loc.latitude;
+      final lng = loc.longitude;
+      if (lat == null || lng == null) return;
+
+      if (!mounted) return;
+      setState(() {
+        _currentRouteStart = LatLng(lat.toDouble(), lng.toDouble());
+      });
+    } catch (_) {
+      // Best-effort: if we can't read GPS, we fall back to home/school.
+    } finally {
+      _loadingCurrentRouteStart = false;
+    }
   }
 
   Future<void> _startTrip() async {
@@ -246,7 +320,6 @@ class _DrivePageState extends State<DrivePage> {
 
     setState(() {
       _routingInFlight = true;
-      _routingStatusText = 'Routing…';
     });
     _routingService
         .routeDrivingWithSteps(stops, includeSteps: true)
@@ -257,12 +330,6 @@ class _DrivePageState extends State<DrivePage> {
             final routed = route?.geometry ?? const <LatLng>[];
             final ok = routed.length >= 2;
             _routedPolyline = ok ? routed : null;
-            _routedSteps = (ok
-                ? (route?.steps ?? const <String>[])
-                : const <String>[]);
-            _routingStatusText = ok
-                ? 'Routing: OSRM (roads)'
-                : 'Routing: straight line (no route)';
           });
         })
         .catchError((_) {
@@ -270,8 +337,6 @@ class _DrivePageState extends State<DrivePage> {
           setState(() {
             _routedKey = key;
             _routedPolyline = null;
-            _routedSteps = const [];
-            _routingStatusText = 'Routing: straight line (OSRM unavailable)';
           });
         })
         .whenComplete(() {
@@ -330,10 +395,13 @@ class _DrivePageState extends State<DrivePage> {
     required Map<String, dynamic>? driverData,
     required List<Map<String, dynamic>> passengers,
     required Map<String, Map<String, dynamic>> studentById,
+    LatLng? currentPosition,
   }) {
     final home = _driverHome(driverData);
     final school = _schoolPoint(driverData);
     if (home == null || school == null) return const [];
+
+    final start = currentPosition ?? home;
 
     BoardingStatus statusOf(String studentId) {
       final p = passengers.firstWhere(
@@ -360,8 +428,9 @@ class _DrivePageState extends State<DrivePage> {
         final s = statusOf(id);
         if (s == BoardingStatus.boarded ||
             s == BoardingStatus.absent ||
-            s == BoardingStatus.alighted)
+            s == BoardingStatus.alighted) {
           continue;
+        }
         final p = pickupOf(id);
         if (p != null) {
           pendingPickups.add({'student_id': id, 'point': p});
@@ -370,8 +439,8 @@ class _DrivePageState extends State<DrivePage> {
 
       final ordered = pendingPickups.isEmpty
           ? const <Map<String, dynamic>>[]
-          : _sortStopsByNearestNeighbor(origin: home, stops: pendingPickups);
-      return [home, ...ordered.map((e) => e['point'] as LatLng), school];
+          : _sortStopsByNearestNeighbor(origin: start, stops: pendingPickups);
+        return [start, ...ordered.map((e) => e['point'] as LatLng), school];
     }
 
     final remainingDropoffs = <Map<String, dynamic>>[];
@@ -386,7 +455,9 @@ class _DrivePageState extends State<DrivePage> {
     final ordered = remainingDropoffs.isEmpty
         ? const <Map<String, dynamic>>[]
         : _sortStopsByNearestNeighbor(origin: school, stops: remainingDropoffs);
-    return [school, ...ordered.map((e) => e['point'] as LatLng), home];
+    // Afternoon flow: driver can start anywhere, but first stop is school.
+    // Last destination is home.
+    return [start, school, ...ordered.map((e) => e['point'] as LatLng), home];
   }
 
   LatLng? _nextDestination({
@@ -394,10 +465,13 @@ class _DrivePageState extends State<DrivePage> {
     required Map<String, dynamic>? driverData,
     required List<Map<String, dynamic>> passengers,
     required Map<String, Map<String, dynamic>> studentById,
+    LatLng? currentPosition,
   }) {
     final home = _driverHome(driverData);
     final school = _schoolPoint(driverData);
     if (home == null || school == null) return null;
+
+    final start = currentPosition ?? home;
 
     final isAfternoon = _isAfternoonRoute(routeType);
 
@@ -425,8 +499,9 @@ class _DrivePageState extends State<DrivePage> {
         final s = statusOf(id);
         if (s == BoardingStatus.boarded ||
             s == BoardingStatus.absent ||
-            s == BoardingStatus.alighted)
+            s == BoardingStatus.alighted) {
           continue;
+        }
         final p = pickupOf(id);
         if (p != null) {
           pendingPickups.add({'student_id': id, 'point': p});
@@ -434,7 +509,7 @@ class _DrivePageState extends State<DrivePage> {
       }
       if (pendingPickups.isNotEmpty) {
         final ordered = _sortStopsByNearestNeighbor(
-          origin: home,
+          origin: start,
           stops: pendingPickups,
         );
         return ordered.first['point'] as LatLng;
@@ -476,6 +551,9 @@ class _DrivePageState extends State<DrivePage> {
     required List<Map<String, dynamic>> passengers,
     required Map<String, Map<String, dynamic>> studentById,
   }) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _ensureCurrentRouteStartLoaded();
+    });
     final serviceArea = (driverData?['service_area'] as Map?)
         ?.cast<String, dynamic>();
     final schoolLat = (serviceArea?['school_lat'] as num?)?.toDouble();
@@ -497,6 +575,7 @@ class _DrivePageState extends State<DrivePage> {
       driverData: driverData,
       passengers: passengers,
       studentById: studentById,
+      currentPosition: _currentRouteStart,
     );
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -577,44 +656,57 @@ class _DrivePageState extends State<DrivePage> {
       );
     }
 
-    return FlutterMap(
-      mapController: _mapController,
-      options: MapOptions(
-        initialCenter: center,
-        initialZoom: hasArea ? 13 : 2,
-        interactionOptions: const InteractionOptions(
-          flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
-        ),
-      ),
+    return Stack(
       children: [
-        TileLayer(
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'school_now_driver',
+        FlutterMap(
+          mapController: _mapController,
+          options: MapOptions(
+            initialCenter: center,
+            initialZoom: hasArea ? 13 : 2,
+            interactionOptions: const InteractionOptions(
+              flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+            ),
+          ),
+          children: [
+            TileLayer(
+              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              userAgentPackageName: 'school_now_driver',
+            ),
+            if (polylinePoints.length >= 2)
+              PolylineLayer(
+                polylines: [
+                  Polyline(
+                    points: polylinePoints,
+                    strokeWidth: 4,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ],
+              ),
+            if (hasArea)
+              CircleLayer(
+                circles: [
+                  CircleMarker(
+                    point: center,
+                    radius: radiusMeters,
+                    useRadiusInMeter: true,
+                    color: Colors.blue.withValues(alpha: 0.15),
+                    borderColor: Colors.blue.withValues(alpha: 0.6),
+                    borderStrokeWidth: 2,
+                  ),
+                ],
+              ),
+            if (markers.isNotEmpty) MarkerLayer(markers: markers),
+          ],
         ),
-        if (polylinePoints.length >= 2)
-          PolylineLayer(
-            polylines: [
-              Polyline(
-                points: polylinePoints,
-                strokeWidth: 4,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-            ],
+        Positioned(
+          right: 10,
+          bottom: 10,
+          child: FloatingActionButton.small(
+            heroTag: 'drive_center',
+            onPressed: _centerOnMyLocation,
+            child: const Icon(Icons.my_location),
           ),
-        if (hasArea)
-          CircleLayer(
-            circles: [
-              CircleMarker(
-                point: center,
-                radius: radiusMeters,
-                useRadiusInMeter: true,
-                color: Colors.blue.withValues(alpha: 0.15),
-                borderColor: Colors.blue.withValues(alpha: 0.6),
-                borderStrokeWidth: 2,
-              ),
-            ],
-          ),
-        if (markers.isNotEmpty) MarkerLayer(markers: markers),
+        ),
       ],
     );
   }
@@ -656,8 +748,9 @@ class _DrivePageState extends State<DrivePage> {
 
     for (final id in studentIds) {
       final s = statusOf(id);
-      if (s != BoardingStatus.alighted && s != BoardingStatus.absent)
+      if (s != BoardingStatus.alighted && s != BoardingStatus.absent) {
         return false;
+      }
     }
     return true;
   }
@@ -682,7 +775,6 @@ class _DrivePageState extends State<DrivePage> {
                 final trip = tripDoc?.data();
 
                 final tripId = tripDoc?.id;
-                final status = (trip?['status'] ?? '').toString();
                 final passengers =
                     (trip?['passengers'] as List?)
                         ?.cast<Map<String, dynamic>>() ??
@@ -709,6 +801,7 @@ class _DrivePageState extends State<DrivePage> {
                         driverData: driverData,
                         passengers: passengers,
                         studentById: studentById,
+                        currentPosition: _currentRouteStart,
                       );
 
                 final isAfternoon = _isAfternoonRoute(routeType);
@@ -1465,6 +1558,14 @@ class _DrivePageState extends State<DrivePage> {
                                                               '')
                                                           .toString();
 
+                                                  final isAbsentToday =
+                                                    (student?['attendance_override'] ?? '')
+                                                        .toString() ==
+                                                      'absent' &&
+                                                    (student?['attendance_date_ymd'] ?? '')
+                                                        .toString() ==
+                                                      _todayYmd();
+
                                                   final p = passengers
                                                       .firstWhere(
                                                         (x) =>
@@ -1487,6 +1588,11 @@ class _DrivePageState extends State<DrivePage> {
                                                         statusStr,
                                                       );
 
+                                                    final uiStatusEnum =
+                                                      isAbsentToday
+                                                        ? BoardingStatus.absent
+                                                        : statusEnum;
+
                                                   final arrivedLabel =
                                                       isAfternoon
                                                       ? 'Arrived (Home)'
@@ -1494,7 +1600,10 @@ class _DrivePageState extends State<DrivePage> {
 
                                                   return Container(
                                                     decoration: BoxDecoration(
-                                                      color: Colors.grey[50],
+                                                      color: isAbsentToday
+                                                          ? Colors.orange
+                                                                .withValues(alpha: 0.06)
+                                                          : Colors.grey[50],
                                                       borderRadius:
                                                           BorderRadius.circular(
                                                             12,
@@ -1511,7 +1620,7 @@ class _DrivePageState extends State<DrivePage> {
                                                         height: 48,
                                                         decoration: BoxDecoration(
                                                           color:
-                                                              statusEnum ==
+                                                            uiStatusEnum ==
                                                                   BoardingStatus
                                                                       .boarded
                                                               ? Colors.green
@@ -1519,7 +1628,7 @@ class _DrivePageState extends State<DrivePage> {
                                                                       alpha:
                                                                           0.2,
                                                                     )
-                                                              : statusEnum ==
+                                                            : uiStatusEnum ==
                                                                     BoardingStatus
                                                                         .alighted
                                                               ? Colors.blue
@@ -1527,7 +1636,7 @@ class _DrivePageState extends State<DrivePage> {
                                                                       alpha:
                                                                           0.2,
                                                                     )
-                                                              : statusEnum ==
+                                                            : uiStatusEnum ==
                                                                     BoardingStatus
                                                                         .absent
                                                               ? Colors.orange
@@ -1544,16 +1653,16 @@ class _DrivePageState extends State<DrivePage> {
                                                               BoxShape.circle,
                                                         ),
                                                         child: Icon(
-                                                          statusEnum ==
+                                                          uiStatusEnum ==
                                                                   BoardingStatus
                                                                       .boarded
                                                               ? Icons
                                                                     .check_circle
-                                                              : statusEnum ==
+                                                            : uiStatusEnum ==
                                                                     BoardingStatus
                                                                         .alighted
                                                               ? Icons.flag
-                                                              : statusEnum ==
+                                                            : uiStatusEnum ==
                                                                     BoardingStatus
                                                                         .absent
                                                               ? Icons
@@ -1561,15 +1670,15 @@ class _DrivePageState extends State<DrivePage> {
                                                               : Icons
                                                                     .radio_button_unchecked,
                                                           color:
-                                                              statusEnum ==
+                                                            uiStatusEnum ==
                                                                   BoardingStatus
                                                                       .boarded
                                                               ? Colors.green
-                                                              : statusEnum ==
+                                                            : uiStatusEnum ==
                                                                     BoardingStatus
                                                                         .alighted
                                                               ? Colors.blue
-                                                              : statusEnum ==
+                                                            : uiStatusEnum ==
                                                                     BoardingStatus
                                                                         .absent
                                                               ? Colors.orange
@@ -1587,12 +1696,14 @@ class _DrivePageState extends State<DrivePage> {
                                                         overflow: TextOverflow
                                                             .ellipsis,
                                                       ),
-                                                      subtitle: Text(
-                                                        'Status: $statusStr',
+                                                        subtitle: Text(
+                                                        isAbsentToday
+                                                          ? 'Status: $statusStr • ABSENT TODAY'
+                                                          : 'Status: $statusStr',
                                                         maxLines: 1,
-                                                        overflow: TextOverflow
-                                                            .ellipsis,
-                                                      ),
+                                                        overflow:
+                                                          TextOverflow.ellipsis,
+                                                        ),
                                                       trailing: Row(
                                                         mainAxisSize:
                                                             MainAxisSize.min,
