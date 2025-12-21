@@ -36,7 +36,10 @@ class _LoginPageState extends State<LoginPage> {
       _error = null;
     });
     try {
-      await _auth.signInWithEmail(_emailController.text.trim(), _passwordController.text);
+      await _auth.signInWithEmail(
+        _emailController.text.trim(),
+        _passwordController.text,
+      );
     } catch (e) {
       setState(() {
         _error = 'Login failed: $e';
@@ -62,7 +65,7 @@ class _LoginPageState extends State<LoginPage> {
       );
     } catch (e) {
       setState(() {
-        _error = 'Student login failed: $e';
+        _error = 'Student login failed!: $e';
       });
     } finally {
       if (mounted) {
@@ -97,7 +100,9 @@ class _LoginPageState extends State<LoginPage> {
             width: double.infinity,
             child: ElevatedButton(
               onPressed: _loading ? null : _signInParent,
-              child: _loading ? const CircularProgressIndicator() : const Text('Login'),
+              child: _loading
+                  ? const CircularProgressIndicator()
+                  : const Text('Login'),
             ),
           ),
           const SizedBox(height: 24),
@@ -124,14 +129,19 @@ class _LoginPageState extends State<LoginPage> {
           if (_error != null)
             Padding(
               padding: const EdgeInsets.only(top: 8),
-              child: Text(_error!, style: TextStyle(color: Colors.red.shade700)),
+              child: Text(
+                _error!,
+                style: TextStyle(color: Colors.red.shade700),
+              ),
             ),
           const SizedBox(height: 18),
           TextButton(
             onPressed: _loading
                 ? null
                 : () {
-                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const RegisterPage()));
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const RegisterPage()),
+                    );
                   },
             child: const Text('Create Parent Account'),
           ),
