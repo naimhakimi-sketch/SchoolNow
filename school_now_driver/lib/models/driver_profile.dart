@@ -1,19 +1,29 @@
 import 'user_profile.dart';
 
 class DriverProfile extends UserProfile {
-  final String? vehicleId;
+  final String? assignedBusPlate;
 
   const DriverProfile({
     required super.id,
     required super.name,
     required super.email,
     required super.role,
-    this.vehicleId,
+    this.assignedBusPlate,
   });
 
   @override
   Map<String, dynamic> toJson() => {
         ...super.toJson(),
-        'vehicle_id': vehicleId,
+        'assigned_bus_plate': assignedBusPlate,
       };
+
+  factory DriverProfile.fromJson(String id, Map<String, dynamic> json) {
+    return DriverProfile(
+      id: id,
+      name: json['name'] ?? '',
+      email: json['email'] ?? '',
+      role: json['role'] ?? '',
+      assignedBusPlate: json['assigned_bus_plate'],
+    );
+  }
 }

@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../services/demo_auth_service.dart';
 import '../../services/driver_service.dart';
+import '../../models/vehicle.dart';
 import 'edit_profile_page.dart';
 
 class ProfilePage extends StatelessWidget {
@@ -51,6 +52,7 @@ class ProfilePage extends StatelessWidget {
           stream: driverService.streamDriver(driverId),
           builder: (context, snap) {
             final data = (snap.data as dynamic)?.data() as Map<String, dynamic>?;
+
             final name = (data?['name'] ?? 'Driver').toString();
             final email = (data?['email'] ?? '').toString();
             final ic = (data?['ic_number'] ?? '').toString();
@@ -66,6 +68,9 @@ class ProfilePage extends StatelessWidget {
             final schoolName = (serviceArea?['school_name'] ?? '').toString();
             final side = (serviceArea?['side'] ?? '').toString();
             final radius = (serviceArea?['radius_km'] ?? '').toString();
+
+            final assignedBusPlate = data?['transport_number']?.toString();
+
 
             return ListView(
               children: [
@@ -86,7 +91,10 @@ class ProfilePage extends StatelessWidget {
                     ),
                   ],
                 ),
+
                 const SizedBox(height: 12),
+
+                // 🔹 Profile Info Card
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(12),
@@ -130,7 +138,43 @@ class ProfilePage extends StatelessWidget {
                     ),
                   ),
                 ),
+
                 const SizedBox(height: 12),
+
+                // 🚌 Assigned Bus Card
+                if (assignedBusPlate != null)
+                  StreamBuilder<Vehicle?>(
+                    stream: driverService.watchAssignedBus(assignedBusPlate),
+                    builder: (context, busSnap) {
+                      if (!busSnap.hasData) {
+                        return const Card(
+                          child: Padding(
+                            padding: EdgeInsets.all(12),
+                            child: Text('Loading assigned bus...'),
+                          ),
+                        );
+                      }
+
+                      final bus = busSnap.data!;
+
+                      return Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            children: [
+                              const ListTile(title: Text('Assigned Bus')),
+                              ListTile(title: const Text('Plate'), subtitle: Text(bus.plate)),
+                              ListTile(title: const Text('Capacity'), subtitle: Text(bus.capacity.toString())),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+
+                const SizedBox(height: 12),
+
+                // 🔹 Service Area Card
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(12),

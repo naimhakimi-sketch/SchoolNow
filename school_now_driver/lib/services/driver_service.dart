@@ -1,8 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../models/vehicle.dart';
 
 class DriverService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
+  // 🔹 Existing methods (unchanged)
   Stream<DocumentSnapshot<Map<String, dynamic>>> streamDriver(String driverId) {
     return _db.collection('drivers').doc(driverId).snapshots();
   }
@@ -20,5 +22,13 @@ class DriverService {
       },
       SetOptions(merge: true),
     );
+  }
+
+  // 🚌 New: watch assigned bus in real-time
+  Stream<Vehicle?> watchAssignedBus(String plate) {
+    return _db.collection('buses').doc(plate).snapshots().map((doc) {
+      if (!doc.exists) return null;
+      return Vehicle.fromFirestore(doc.id, doc.data()!);
+    });
   }
 }
