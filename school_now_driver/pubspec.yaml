@@ -39,6 +39,7 @@ dependencies:
   cloud_firestore: ^5.4.5
   firebase_database: ^11.0.3
   location: ^6.0.0
+  geolocator: ^13.0.2
   shared_preferences: ^2.2.2
   flutter_map: ^7.0.2
   latlong2: ^0.9.1

@@ -6,6 +6,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../services/auth_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/parent_service.dart';
+import '../children/add_child_page.dart';
 import '../children/edit_child_page.dart';
 import 'edit_profile_page.dart';
 import 'notification_simulator_page.dart';
@@ -53,7 +54,8 @@ class ProfilePage extends StatelessWidget {
           stream: childRef.snapshots(),
           builder: (context, childSnap) {
             final child = childSnap.data?.data() ?? childDoc.data();
-            final assignedDriver = (child['assigned_driver_id'] ?? '').toString();
+            final assignedDriver = (child['assigned_driver_id'] ?? '')
+                .toString();
 
             return ListView(
               padding: const EdgeInsets.all(16),
@@ -84,284 +86,311 @@ class ProfilePage extends StatelessWidget {
                     ),
                   ],
                 ),
-            const SizedBox(height: 12),
-            ListTile(title: const Text('Name'), subtitle: Text(name)),
-            ListTile(title: const Text('Email'), subtitle: Text(email)),
-            if (contact.isNotEmpty)
-              ListTile(title: const Text('Contact'), subtitle: Text(contact)),
-            ListTile(
-              title: const Text('Address'),
-              subtitle: Text(address.isEmpty ? '(not set)' : address),
-              trailing: assignedDriver.isNotEmpty ? const Text('Locked') : null,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Student',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            Card(
-              child: Column(
-                children: [
+                const SizedBox(height: 12),
+                ListTile(title: const Text('Name'), subtitle: Text(name)),
+                ListTile(title: const Text('Email'), subtitle: Text(email)),
+                if (contact.isNotEmpty)
                   ListTile(
-                    leading: const Icon(Icons.school_outlined),
-                    title: Text((child['child_name'] ?? 'Student').toString()),
-                    subtitle: Text(
-                      [
-                        if (((child['child_ic'] ?? '').toString()).trim().isNotEmpty)
-                          'IC: ${(child['child_ic'] ?? '').toString()}',
-                        if (((child['school_name'] ?? '').toString()).trim().isNotEmpty)
-                          'School: ${(child['school_name'] ?? '').toString()}',
-                        (() {
-                          final pickup = (child['pickup_location'] as Map?)?.cast<String, dynamic>();
-                          final lat = (pickup?['lat'] as num?)?.toDouble();
-                          final lng = (pickup?['lng'] as num?)?.toDouble();
-                          if (lat == null || lng == null) return null;
-                          return 'Pickup: ${lat.toStringAsFixed(6)}, ${lng.toStringAsFixed(6)}';
-                        })(),
-                      ].whereType<String>().join('\n'),
+                    title: const Text('Contact'),
+                    subtitle: Text(contact),
+                  ),
+                ListTile(
+                  title: const Text('Address'),
+                  subtitle: Text(address.isEmpty ? '(not set)' : address),
+                  trailing: assignedDriver.isNotEmpty
+                      ? const Text('Locked')
+                      : null,
+                ),
+                const SizedBox(height: 12),
+                Text('Student', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 8),
+                Card(
+                  child: Column(
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.school_outlined),
+                        title: Text(
+                          (child['child_name'] ?? 'Student').toString(),
+                        ),
+                        subtitle: Text(
+                          [
+                            if (((child['child_ic'] ?? '').toString())
+                                .trim()
+                                .isNotEmpty)
+                              'IC: ${(child['child_ic'] ?? '').toString()}',
+                            if (((child['school_name'] ?? '').toString())
+                                .trim()
+                                .isNotEmpty)
+                              'School: ${(child['school_name'] ?? '').toString()}',
+                          ].whereType<String>().join('\n'),
+                        ),
+                        isThreeLine: true,
+                        trailing: const Icon(Icons.edit),
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => EditChildPage(
+                                parentId: parentId,
+                                childId: childDoc.id,
+                                initialChildName: (child['child_name'] ?? '')
+                                    .toString(),
+                                initialChildIc: (child['child_ic'] ?? '')
+                                    .toString(),
+                                initialSchoolName: (child['school_name'] ?? '')
+                                    .toString(),
+                                initialSchoolId: child['school_id']?.toString(),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const AddChildPage()),
+                    );
+                  },
+                  icon: const Icon(Icons.person_add),
+                  label: const Text('Add Another Child'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.deepPurple,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+                Text(
+                  'Student QR (for offline use):',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                Center(child: QrImageView(data: childDoc.id, size: 160)),
+
+                const SizedBox(height: 18),
+                Text(
+                  'Notifications',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.notifications),
+                    title: const Text('Notification Simulator'),
+                    subtitle: const Text(
+                      'Create sample notifications for testing',
                     ),
-                    isThreeLine: true,
-                    trailing: const Icon(Icons.edit),
                     onTap: () {
-                      final pickup = (child['pickup_location'] as Map?)?.cast<String, dynamic>();
-                      final pickupLat = (pickup?['lat'] as num?)?.toDouble();
-                      final pickupLng = (pickup?['lng'] as num?)?.toDouble();
                       Navigator.of(context).push(
                         MaterialPageRoute(
-                          builder: (_) => EditChildPage(
+                          builder: (_) => NotificationSimulatorPage(
                             parentId: parentId,
                             childId: childDoc.id,
-                            initialChildName: (child['child_name'] ?? '').toString(),
-                            initialChildIc: (child['child_ic'] ?? '').toString(),
-                            initialSchoolName: (child['school_name'] ?? '').toString(),
-                            initialSchoolLat: (child['school_lat'] as num?)?.toDouble(),
-                            initialSchoolLng: (child['school_lng'] as num?)?.toDouble(),
-                            initialPickupLat: pickupLat,
-                            initialPickupLng: pickupLng,
+                            childName: (child['child_name'] ?? 'child')
+                                .toString(),
                           ),
                         ),
                       );
                     },
                   ),
-                ],
-              ),
-            ),
+                ),
 
-            const SizedBox(height: 12),
-            Text(
-              'Student QR (for offline use):',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            Center(child: QrImageView(data: childDoc.id, size: 160)),
-
-            const SizedBox(height: 18),
-            Text(
-              'Notifications',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.notifications),
-                title: const Text('Notification Simulator'),
-                subtitle: const Text('Create sample notifications for testing'),
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => NotificationSimulatorPage(
-                        parentId: parentId,
-                        childId: childDoc.id,
-                        childName: (child['child_name'] ?? 'child').toString(),
+                Card(
+                  child: Column(
+                    children: [
+                      SwitchListTile(
+                        title: const Text('Proximity alerts'),
+                        subtitle: const Text(
+                          'Notify when driver is near pickup',
+                        ),
+                        value: proximityAlert,
+                        onChanged: (v) {
+                          parentService.updateParent(parentId, {
+                            'notifications': {
+                              'proximity_alert': v,
+                              'boarding_alert': boardingAlert,
+                            },
+                          });
+                        },
                       ),
-                    ),
-                  );
-                },
-              ),
-            ),
-
-            Card(
-              child: Column(
-                children: [
-                  SwitchListTile(
-                    title: const Text('Proximity alerts'),
-                    subtitle: const Text('Notify when driver is near pickup'),
-                    value: proximityAlert,
-                    onChanged: (v) {
-                      parentService.updateParent(parentId, {
-                        'notifications': {
-                          'proximity_alert': v,
-                          'boarding_alert': boardingAlert,
-                        },
-                      });
-                    },
-                  ),
-                  const Divider(height: 1),
-                  SwitchListTile(
-                    title: const Text('Boarding status alerts'),
-                    subtitle: const Text('Notify when boarding status changes'),
-                    value: boardingAlert,
-                    onChanged: (v) {
-                      parentService.updateParent(parentId, {
-                        'notifications': {
-                          'proximity_alert': proximityAlert,
-                          'boarding_alert': v,
-                        },
-                      });
-                    },
-                  ),
-                ],
-              ),
-            ),
-
-            if (assignedDriver.isNotEmpty) ...[
-              const SizedBox(height: 18),
-              Text('Billing', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              StreamBuilder(
-                stream: FirebaseFirestore.instance
-                    .collection('payments')
-                    .where('parent_id', isEqualTo: parentId)
-                    .snapshots(),
-                builder: (context, paySnap) {
-                  final docs = (paySnap.data as dynamic)?.docs as List?;
-                  if (docs == null) return const SizedBox.shrink();
-
-                  // Filter client-side to avoid composite index requirements.
-                  final filtered = docs.where((d) {
-                    final m = (d.data() as Map).cast<String, dynamic>();
-                    return (m['child_id'] ?? '').toString() == childDoc.id &&
-                        (m['driver_id'] ?? '').toString() == assignedDriver;
-                  }).toList();
-
-                  if (filtered.isEmpty) {
-                    return const Text('No payment record yet.');
-                  }
-
-                  filtered.sort((a, b) {
-                    final ma = (a.data() as Map).cast<String, dynamic>();
-                    final mb = (b.data() as Map).cast<String, dynamic>();
-                    final ta =
-                        (ma['created_at'] as Timestamp?)
-                            ?.millisecondsSinceEpoch ??
-                        0;
-                    final tb =
-                        (mb['created_at'] as Timestamp?)
-                            ?.millisecondsSinceEpoch ??
-                        0;
-                    return tb.compareTo(ta);
-                  });
-
-                  final latest = filtered.first;
-                  final m = (latest.data() as Map).cast<String, dynamic>();
-                  final status = (m['status'] ?? 'pending').toString();
-                  final createdAt = (m['created_at'] as Timestamp?)?.toDate();
-
-                  DateTime? due;
-                  if (createdAt != null) {
-                    due = createdAt.add(const Duration(days: 30));
-                  }
-
-                  String? dueText;
-                  int? daysLeft;
-                  if (due != null) {
-                    final now = DateTime.now();
-                    daysLeft = due
-                        .difference(DateTime(now.year, now.month, now.day))
-                        .inDays;
-                    dueText =
-                        '${due.year.toString().padLeft(4, '0')}-${due.month.toString().padLeft(2, '0')}-${due.day.toString().padLeft(2, '0')}';
-
-                    // SRS FR-PA-5.8: reminders 2 days and 1 day before due date.
-                    if ((daysLeft == 2 || daysLeft == 1) &&
-                        status == 'pending') {
-                      final notifId =
-                          'billing_${childDoc.id}_${dueText}_${daysLeft}d';
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        notificationService.createUnique(
-                          notificationId: notifId,
-                          userId: parentId,
-                          type: 'billing',
-                          message:
-                              'Payment due in $daysLeft day(s) for ${(child['child_name'] ?? 'child').toString()}',
-                        );
-                      });
-                    }
-                  }
-
-                  return Card(
-                    child: Column(
-                      children: [
-                        ListTile(
-                          title: const Text('Latest payment status'),
-                          subtitle: Text(status),
+                      const Divider(height: 1),
+                      SwitchListTile(
+                        title: const Text('Boarding status alerts'),
+                        subtitle: const Text(
+                          'Notify when boarding status changes',
                         ),
-                        if (dueText != null)
-                          ListTile(
-                            title: const Text('Next due date'),
-                            subtitle: Text(dueText),
-                            trailing:
-                                (daysLeft != null &&
-                                    daysLeft >= 0 &&
-                                    daysLeft <= 5)
-                                ? Text('$daysLeft days')
-                                : null,
-                          ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ],
+                        value: boardingAlert,
+                        onChanged: (v) {
+                          parentService.updateParent(parentId, {
+                            'notifications': {
+                              'proximity_alert': proximityAlert,
+                              'boarding_alert': v,
+                            },
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ),
 
-            const SizedBox(height: 12),
-            StreamBuilder(
-              stream: notificationService.streamForUser(parentId),
-              builder: (context, notifSnap) {
-                final docs = (notifSnap.data as dynamic)?.docs as List?;
-                if (docs == null) return const SizedBox.shrink();
-                if (docs.isEmpty) {
-                  return const Text('No notifications yet.');
-                }
-                return Card(
-                  child: ListView.separated(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: docs.length,
-                    separatorBuilder: (context, index) =>
-                        const Divider(height: 1),
-                    itemBuilder: (context, i) {
-                      final d = docs[i];
-                      final m = (d.data() as Map).cast<String, dynamic>();
-                      final type = (m['type'] ?? '').toString();
-                      final message = (m['message'] ?? '').toString();
-                      final read = (m['read'] == true);
-                      return ListTile(
-                        title: Text(message.isEmpty ? '(no message)' : message),
-                        subtitle: type.isEmpty ? null : Text(type),
-                        trailing: read
-                            ? null
-                            : const Icon(Icons.circle, size: 10),
-                        onTap: () => notificationService.markRead(d.id),
+                if (assignedDriver.isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  Text(
+                    'Billing',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  StreamBuilder(
+                    stream: FirebaseFirestore.instance
+                        .collection('payments')
+                        .where('parent_id', isEqualTo: parentId)
+                        .snapshots(),
+                    builder: (context, paySnap) {
+                      final docs = (paySnap.data as dynamic)?.docs as List?;
+                      if (docs == null) return const SizedBox.shrink();
+
+                      // Filter client-side to avoid composite index requirements.
+                      final filtered = docs.where((d) {
+                        final m = (d.data() as Map).cast<String, dynamic>();
+                        return (m['child_id'] ?? '').toString() ==
+                                childDoc.id &&
+                            (m['driver_id'] ?? '').toString() == assignedDriver;
+                      }).toList();
+
+                      if (filtered.isEmpty) {
+                        return const Text('No payment record yet.');
+                      }
+
+                      filtered.sort((a, b) {
+                        final ma = (a.data() as Map).cast<String, dynamic>();
+                        final mb = (b.data() as Map).cast<String, dynamic>();
+                        final ta =
+                            (ma['created_at'] as Timestamp?)
+                                ?.millisecondsSinceEpoch ??
+                            0;
+                        final tb =
+                            (mb['created_at'] as Timestamp?)
+                                ?.millisecondsSinceEpoch ??
+                            0;
+                        return tb.compareTo(ta);
+                      });
+
+                      final latest = filtered.first;
+                      final m = (latest.data() as Map).cast<String, dynamic>();
+                      final status = (m['status'] ?? 'pending').toString();
+                      final createdAt = (m['created_at'] as Timestamp?)
+                          ?.toDate();
+
+                      DateTime? due;
+                      if (createdAt != null) {
+                        due = createdAt.add(const Duration(days: 30));
+                      }
+
+                      String? dueText;
+                      int? daysLeft;
+                      if (due != null) {
+                        final now = DateTime.now();
+                        daysLeft = due
+                            .difference(DateTime(now.year, now.month, now.day))
+                            .inDays;
+                        dueText =
+                            '${due.year.toString().padLeft(4, '0')}-${due.month.toString().padLeft(2, '0')}-${due.day.toString().padLeft(2, '0')}';
+
+                        // SRS FR-PA-5.8: reminders 2 days and 1 day before due date.
+                        if ((daysLeft == 2 || daysLeft == 1) &&
+                            status == 'pending') {
+                          final notifId =
+                              'billing_${childDoc.id}_${dueText}_${daysLeft}d';
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            notificationService.createUnique(
+                              notificationId: notifId,
+                              userId: parentId,
+                              type: 'billing',
+                              message:
+                                  'Payment due in $daysLeft day(s) for ${(child['child_name'] ?? 'child').toString()}',
+                            );
+                          });
+                        }
+                      }
+
+                      return Card(
+                        child: Column(
+                          children: [
+                            ListTile(
+                              title: const Text('Latest payment status'),
+                              subtitle: Text(status),
+                            ),
+                            if (dueText != null)
+                              ListTile(
+                                title: const Text('Next due date'),
+                                subtitle: Text(dueText),
+                                trailing:
+                                    (daysLeft != null &&
+                                        daysLeft >= 0 &&
+                                        daysLeft <= 5)
+                                    ? Text('$daysLeft days')
+                                    : null,
+                              ),
+                          ],
+                        ),
                       );
                     },
                   ),
-                );
-              },
-            ),
+                ],
 
-            const SizedBox(height: 18),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () async {
-                  await auth.signOut();
-                },
-                icon: const Icon(Icons.logout),
-                label: const Text('Logout'),
-              ),
-            ),
+                const SizedBox(height: 12),
+                StreamBuilder(
+                  stream: notificationService.streamForUser(parentId),
+                  builder: (context, notifSnap) {
+                    final docs = (notifSnap.data as dynamic)?.docs as List?;
+                    if (docs == null) return const SizedBox.shrink();
+                    if (docs.isEmpty) {
+                      return const Text('No notifications yet.');
+                    }
+                    return Card(
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: docs.length,
+                        separatorBuilder: (context, index) =>
+                            const Divider(height: 1),
+                        itemBuilder: (context, i) {
+                          final d = docs[i];
+                          final m = (d.data() as Map).cast<String, dynamic>();
+                          final type = (m['type'] ?? '').toString();
+                          final message = (m['message'] ?? '').toString();
+                          final read = (m['read'] == true);
+                          return ListTile(
+                            title: Text(
+                              message.isEmpty ? '(no message)' : message,
+                            ),
+                            subtitle: type.isEmpty ? null : Text(type),
+                            trailing: read
+                                ? null
+                                : const Icon(Icons.circle, size: 10),
+                            onTap: () => notificationService.markRead(d.id),
+                          );
+                        },
+                      ),
+                    );
+                  },
+                ),
+
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      await auth.signOut();
+                    },
+                    icon: const Icon(Icons.logout),
+                    label: const Text('Logout'),
+                  ),
+                ),
               ],
             );
           },

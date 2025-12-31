@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:location/location.dart';
 
 import '../../models/boarding_status.dart';
 import '../../services/live_location_service.dart';
@@ -47,7 +46,6 @@ class _MonitorPageState extends State<MonitorPage> {
   final _notificationService = NotificationService();
   final _live = TripLiveLocationService();
   final _mapController = MapController();
-  final Location _location = Location();
   final _routingService = OsrmRoutingService();
 
   String? _routedKey;
@@ -106,29 +104,23 @@ class _MonitorPageState extends State<MonitorPage> {
     );
   }
 
-  Future<void> _centerOnMyLocation() async {
+  Future<void> _centerOnParentHome() async {
     try {
-      var enabled = await _location.serviceEnabled();
-      if (!enabled) {
-        enabled = await _location.requestService();
-      }
-      if (!enabled) return;
+      final parentDoc = await FirebaseFirestore.instance
+          .collection('parents')
+          .doc(widget.parentId)
+          .get();
 
-      var perm = await _location.hasPermission();
-      if (perm == PermissionStatus.denied) {
-        perm = await _location.requestPermission();
+      if (parentDoc.exists) {
+        final data = parentDoc.data();
+        if (data != null &&
+            data['pickup_lat'] != null &&
+            data['pickup_lng'] != null) {
+          final lat = data['pickup_lat'];
+          final lng = data['pickup_lng'];
+          _mapController.move(LatLng(lat, lng), 16);
+        }
       }
-      if (perm != PermissionStatus.granted &&
-          perm != PermissionStatus.grantedLimited) {
-        return;
-      }
-
-      final loc = await _location.getLocation();
-      final lat = loc.latitude;
-      final lng = loc.longitude;
-      if (lat == null || lng == null) return;
-
-      _mapController.move(LatLng(lat, lng), 16);
     } catch (_) {}
   }
 
@@ -200,13 +192,14 @@ class _MonitorPageState extends State<MonitorPage> {
   }
 
   LatLng? _driverHome(Map<String, dynamic>? driverData) {
-    final home = (driverData?['home_location'] as Map?)?.cast<String, dynamic>();
+    final home = (driverData?['home_location'] as Map?)
+        ?.cast<String, dynamic>();
     return MonitorPage._latLngFromMap(home);
   }
 
   LatLng? _schoolPoint(Map<String, dynamic>? driverData) {
-    final serviceArea =
-        (driverData?['service_area'] as Map?)?.cast<String, dynamic>();
+    final serviceArea = (driverData?['service_area'] as Map?)
+        ?.cast<String, dynamic>();
     final lat = (serviceArea?['school_lat'] as num?)?.toDouble();
     final lng = (serviceArea?['school_lng'] as num?)?.toDouble();
     if (lat == null || lng == null) return null;
@@ -291,8 +284,11 @@ class _MonitorPageState extends State<MonitorPage> {
       }
       final ordered = pendingPickups.isEmpty
           ? const <Map<String, dynamic>>[]
-          : _sortStopsByNearestNeighbor(origin: routeStart, stops: pendingPickups);
-        return [routeStart, ...ordered.map((e) => e['point'] as LatLng), school];
+          : _sortStopsByNearestNeighbor(
+              origin: routeStart,
+              stops: pendingPickups,
+            );
+      return [routeStart, ...ordered.map((e) => e['point'] as LatLng), school];
     }
 
     final remainingDropoffs = <Map<String, dynamic>>[];
@@ -310,7 +306,12 @@ class _MonitorPageState extends State<MonitorPage> {
 
     // Keep afternoon logic consistent with driver routing:
     // current -> school -> dropoffs -> home
-    return [routeStart, school, ...ordered.map((e) => e['point'] as LatLng), home];
+    return [
+      routeStart,
+      school,
+      ...ordered.map((e) => e['point'] as LatLng),
+      home,
+    ];
   }
 
   Widget _buildMap({
@@ -355,8 +356,8 @@ class _MonitorPageState extends State<MonitorPage> {
           bottom: 10,
           child: FloatingActionButton.small(
             heroTag: heroTag,
-            onPressed: _centerOnMyLocation,
-            child: const Icon(Icons.my_location),
+            onPressed: _centerOnParentHome,
+            child: const Icon(Icons.home),
           ),
         ),
         Positioned(
@@ -382,8 +383,8 @@ class _MonitorPageState extends State<MonitorPage> {
       stream: _parentService.streamParent(widget.parentId),
       builder: (context, parentSnap) {
         final parent = parentSnap.data?.data() ?? const <String, dynamic>{};
-        final notifications = (parent['notifications'] as Map?)
-                ?.cast<String, dynamic>() ??
+        final notifications =
+            (parent['notifications'] as Map?)?.cast<String, dynamic>() ??
             const <String, dynamic>{};
         final proximityAlertEnabled = notifications['proximity_alert'] == true;
 
@@ -391,14 +392,18 @@ class _MonitorPageState extends State<MonitorPage> {
           stream: childRef.snapshots(),
           builder: (context, childSnap) {
             final child = childSnap.data?.data() ?? widget.childDoc.data();
-            final assignedDriver = (child['assigned_driver_id'] ?? '').toString();
+            final assignedDriver = (child['assigned_driver_id'] ?? '')
+                .toString();
             if (assignedDriver.isEmpty) {
               return const Center(
-                child: Text('No driver assigned. Go to Drivers to request one.'),
+                child: Text(
+                  'No driver assigned. Go to Drivers to request one.',
+                ),
               );
             }
 
-            final override = (child['attendance_override'] ?? 'attending').toString();
+            final override = (child['attendance_override'] ?? 'attending')
+                .toString();
             final attending = override != 'absent';
 
             return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -407,7 +412,8 @@ class _MonitorPageState extends State<MonitorPage> {
                   .doc(assignedDriver)
                   .snapshots(),
               builder: (context, driverSnap) {
-                final driver = driverSnap.data?.data() ?? const <String, dynamic>{};
+                final driver =
+                    driverSnap.data?.data() ?? const <String, dynamic>{};
                 final tripId = (driver['active_trip_id'] ?? '').toString();
 
                 if (tripId.isEmpty) {
@@ -474,10 +480,10 @@ class _MonitorPageState extends State<MonitorPage> {
                               attending: attending,
                               onAttendanceChanged: (v) =>
                                   _parentService.setAttendanceForToday(
-                                parentId: widget.parentId,
-                                childId: widget.childDoc.id,
-                                attending: v,
-                              ),
+                                    parentId: widget.parentId,
+                                    childId: widget.childDoc.id,
+                                    attending: v,
+                                  ),
                               statusText: 'Status: Not started',
                             ),
                           ),
@@ -498,14 +504,18 @@ class _MonitorPageState extends State<MonitorPage> {
                       return const Center(child: Text('Trip not found'));
                     }
 
-                    final routeType = (trip['route_type'] ?? 'morning').toString();
+                    final routeType = (trip['route_type'] ?? 'morning')
+                        .toString();
 
                     final passengers =
-                        (trip['passengers'] as List?)?.cast<Map>() ?? const <Map>[];
+                        (trip['passengers'] as List?)?.cast<Map>() ??
+                        const <Map>[];
                     final p = passengers
                         .map((e) => e.cast<String, dynamic>())
                         .firstWhere(
-                          (x) => (x['student_id'] ?? '').toString() == widget.childDoc.id,
+                          (x) =>
+                              (x['student_id'] ?? '').toString() ==
+                              widget.childDoc.id,
                           orElse: () => const <String, dynamic>{},
                         );
                     final fallbackStatus = BoardingStatusCodec.fromJson(
@@ -548,18 +558,22 @@ class _MonitorPageState extends State<MonitorPage> {
                             }
 
                             final LatLng? pickup = MonitorPage._latLngFromMap(
-                              (child['pickup_location'] as Map?)?.cast<String, dynamic>(),
+                              (child['pickup_location'] as Map?)
+                                  ?.cast<String, dynamic>(),
                             );
 
                             // If no trip-specific location yet, fall back to `live_locations/<driverId>`.
                             if (driverPoint == null) {
                               return StreamBuilder<DatabaseEvent>(
-                                stream: _live.streamDriverLiveLocation(assignedDriver),
+                                stream: _live.streamDriverLiveLocation(
+                                  assignedDriver,
+                                ),
                                 builder: (context, driverLocSnap) {
                                   LatLng fallbackCenter = center;
                                   LatLng? fallbackDriverPoint;
 
-                                  final raw = driverLocSnap.data?.snapshot.value;
+                                  final raw =
+                                      driverLocSnap.data?.snapshot.value;
                                   if (raw is Map) {
                                     final m = raw.cast<Object?, Object?>();
                                     final lat = (m['lat'] as num?)?.toDouble();
@@ -567,21 +581,28 @@ class _MonitorPageState extends State<MonitorPage> {
                                     if (lat != null && lng != null) {
                                       fallbackDriverPoint = LatLng(lat, lng);
                                       fallbackCenter = fallbackDriverPoint;
-                                      _maybeAutoCenterOnDriver(fallbackDriverPoint);
+                                      _maybeAutoCenterOnDriver(
+                                        fallbackDriverPoint,
+                                      );
                                     }
                                   }
 
                                   if (proximityAlertEnabled &&
                                       pickup != null &&
                                       fallbackDriverPoint != null) {
-                                    final meters =
-                                        const Distance()(pickup, fallbackDriverPoint);
+                                    final meters = const Distance()(
+                                      pickup,
+                                      fallbackDriverPoint,
+                                    );
                                     if (meters <= 200 &&
                                         _proximityNotifiedTripId != tripId) {
                                       _proximityNotifiedTripId = tripId;
                                       final childName =
-                                          (child['child_name'] ?? 'Student').toString();
-                                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                                          (child['child_name'] ?? 'Student')
+                                              .toString();
+                                      WidgetsBinding.instance.addPostFrameCallback((
+                                        _,
+                                      ) {
                                         _notificationService.createUnique(
                                           notificationId:
                                               'proximity_${tripId}_${widget.childDoc.id}',
@@ -594,42 +615,60 @@ class _MonitorPageState extends State<MonitorPage> {
                                     }
                                   }
 
-                                  return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                                  return StreamBuilder<
+                                    QuerySnapshot<Map<String, dynamic>>
+                                  >(
                                     stream: FirebaseFirestore.instance
                                         .collection('drivers')
                                         .doc(assignedDriver)
                                         .collection('students')
                                         .snapshots(),
                                     builder: (context, studentsSnap) {
-                                      final docs = studentsSnap.data?.docs ?? const [];
+                                      final docs =
+                                          studentsSnap.data?.docs ?? const [];
                                       final studentById = {
                                         for (final d in docs) d.id: d.data(),
                                       };
 
-                                      final stopPoints = _buildRoutePolylineStops(
-                                        routeType: routeType,
-                                        driverData: driver,
-                                        driverLivePoint: fallbackDriverPoint != null
-                                            ? _roundLatLng(fallbackDriverPoint)
-                                            : null,
-                                        passengers: passengers
-                                            .map((e) => e.cast<String, dynamic>())
-                                            .toList(),
-                                        studentById: studentById,
-                                      );
+                                      final stopPoints =
+                                          _buildRoutePolylineStops(
+                                            routeType: routeType,
+                                            driverData: driver,
+                                            driverLivePoint:
+                                                fallbackDriverPoint != null
+                                                ? _roundLatLng(
+                                                    fallbackDriverPoint,
+                                                  )
+                                                : null,
+                                            passengers: passengers
+                                                .map(
+                                                  (e) =>
+                                                      e.cast<String, dynamic>(),
+                                                )
+                                                .toList(),
+                                            studentById: studentById,
+                                          );
 
-                                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                                        _ensureRoutedPolyline(routeType, stopPoints);
-                                      });
+                                      WidgetsBinding.instance
+                                          .addPostFrameCallback((_) {
+                                            _ensureRoutedPolyline(
+                                              routeType,
+                                              stopPoints,
+                                            );
+                                          });
 
                                       final routed =
-                                          _routedKey == _makeRouteKey(routeType, stopPoints)
-                                              ? _routedPolyline
-                                              : null;
+                                          _routedKey ==
+                                              _makeRouteKey(
+                                                routeType,
+                                                stopPoints,
+                                              )
+                                          ? _routedPolyline
+                                          : null;
                                       final polylinePoints =
                                           (routed != null && routed.length >= 2)
-                                              ? routed
-                                              : stopPoints;
+                                          ? routed
+                                          : stopPoints;
 
                                       return Stack(
                                         children: [
@@ -637,8 +676,11 @@ class _MonitorPageState extends State<MonitorPage> {
                                             child: _buildMap(
                                               initialCenter: fallbackCenter,
                                               initialZoom:
-                                                  fallbackDriverPoint != null ? 15 : 2,
-                                              heroTag: 'monitor_center_fallback',
+                                                  fallbackDriverPoint != null
+                                                  ? 15
+                                                  : 2,
+                                              heroTag:
+                                                  'monitor_center_fallback',
                                               driverPoint: fallbackDriverPoint,
                                               polylinePoints: polylinePoints,
                                               markers: [
@@ -672,11 +714,14 @@ class _MonitorPageState extends State<MonitorPage> {
                                             child: _buildOverlayPanels(
                                               attending: attending,
                                               onAttendanceChanged: (v) =>
-                                                  _parentService.setAttendanceForToday(
-                                                parentId: widget.parentId,
-                                                childId: widget.childDoc.id,
-                                                attending: v,
-                                              ),
+                                                  _parentService
+                                                      .setAttendanceForToday(
+                                                        parentId:
+                                                            widget.parentId,
+                                                        childId:
+                                                            widget.childDoc.id,
+                                                        attending: v,
+                                                      ),
                                               statusText:
                                                   'Status: ${MonitorPage._statusLabel(status)}',
                                             ),
@@ -693,30 +738,38 @@ class _MonitorPageState extends State<MonitorPage> {
 
                             if (proximityAlertEnabled && pickup != null) {
                               final meters = const Distance()(pickup, dp);
-                              if (meters <= 200 && _proximityNotifiedTripId != tripId) {
+                              if (meters <= 200 &&
+                                  _proximityNotifiedTripId != tripId) {
                                 _proximityNotifiedTripId = tripId;
                                 final childName =
-                                    (child['child_name'] ?? 'Student').toString();
-                                WidgetsBinding.instance.addPostFrameCallback((_) {
+                                    (child['child_name'] ?? 'Student')
+                                        .toString();
+                                WidgetsBinding.instance.addPostFrameCallback((
+                                  _,
+                                ) {
                                   _notificationService.createUnique(
                                     notificationId:
                                         'proximity_${tripId}_${widget.childDoc.id}',
                                     userId: widget.parentId,
                                     type: 'proximity',
-                                    message: 'Driver is near pickup for $childName',
+                                    message:
+                                        'Driver is near pickup for $childName',
                                   );
                                 });
                               }
                             }
 
-                            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                            return StreamBuilder<
+                              QuerySnapshot<Map<String, dynamic>>
+                            >(
                               stream: FirebaseFirestore.instance
                                   .collection('drivers')
                                   .doc(assignedDriver)
                                   .collection('students')
                                   .snapshots(),
                               builder: (context, studentsSnap) {
-                                final docs = studentsSnap.data?.docs ?? const [];
+                                final docs =
+                                    studentsSnap.data?.docs ?? const [];
                                 final studentById = {
                                   for (final d in docs) d.id: d.data(),
                                 };
@@ -725,23 +778,27 @@ class _MonitorPageState extends State<MonitorPage> {
                                   routeType: routeType,
                                   driverData: driver,
                                   driverLivePoint: _roundLatLng(dp),
-                                  passengers:
-                                      passengers.map((e) => e.cast<String, dynamic>()).toList(),
+                                  passengers: passengers
+                                      .map((e) => e.cast<String, dynamic>())
+                                      .toList(),
                                   studentById: studentById,
                                 );
 
-                                WidgetsBinding.instance.addPostFrameCallback((_) {
+                                WidgetsBinding.instance.addPostFrameCallback((
+                                  _,
+                                ) {
                                   _ensureRoutedPolyline(routeType, stopPoints);
                                 });
 
                                 final routed =
-                                    _routedKey == _makeRouteKey(routeType, stopPoints)
-                                        ? _routedPolyline
-                                        : null;
+                                    _routedKey ==
+                                        _makeRouteKey(routeType, stopPoints)
+                                    ? _routedPolyline
+                                    : null;
                                 final polylinePoints =
                                     (routed != null && routed.length >= 2)
-                                        ? routed
-                                        : stopPoints;
+                                    ? routed
+                                    : stopPoints;
 
                                 return Stack(
                                   children: [
@@ -782,11 +839,12 @@ class _MonitorPageState extends State<MonitorPage> {
                                       child: _buildOverlayPanels(
                                         attending: attending,
                                         onAttendanceChanged: (v) =>
-                                            _parentService.setAttendanceForToday(
-                                          parentId: widget.parentId,
-                                          childId: widget.childDoc.id,
-                                          attending: v,
-                                        ),
+                                            _parentService
+                                                .setAttendanceForToday(
+                                                  parentId: widget.parentId,
+                                                  childId: widget.childDoc.id,
+                                                  attending: v,
+                                                ),
                                         statusText:
                                             'Status: ${MonitorPage._statusLabel(status)}',
                                       ),

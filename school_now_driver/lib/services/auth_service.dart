@@ -61,6 +61,17 @@ class AuthService {
     }
 
     final data = snap.docs.first.data();
+
+    // Check if driver is verified
+    final isVerified = data['is_verified'] as bool? ?? false;
+    if (!isVerified) {
+      throw FirebaseAuthException(
+        code: 'user-not-verified',
+        message:
+            'Your account is pending admin verification. Please wait for approval.',
+      );
+    }
+
     final email = (data['email'] ?? '').toString();
     if (email.isEmpty) {
       throw FirebaseAuthException(
@@ -76,17 +87,7 @@ class AuthService {
     required String name,
     required String email,
     required String contactNumber,
-    required String address,
-    double? homeLat,
-    double? homeLng,
-    required String transportNumber,
-    required int seatCapacity,
-    required double monthlyFee,
-    required String serviceAreaSchoolName,
-    required double serviceAreaSchoolLat,
-    required double serviceAreaSchoolLng,
-    required String serviceAreaSide,
-    required double serviceAreaRadiusKm,
+    required String licenseNumber,
     required String password,
   }) async {
     final rawIc = icNumber.trim();
@@ -123,26 +124,12 @@ class AuthService {
       'name': name,
       'email': email,
       'contact_number': contactNumber,
-      'address': address,
-      'transport_number': transportNumber,
-      'seat_capacity': seatCapacity,
-      'monthly_fee': monthlyFee,
-      'service_area': {
-        'school_name': serviceAreaSchoolName,
-        'school_lat': serviceAreaSchoolLat,
-        'school_lng': serviceAreaSchoolLng,
-        'side': serviceAreaSide,
-        'radius_km': serviceAreaRadiusKm,
-      },
+      'license_number': licenseNumber,
       'role': 'driver',
-      'is_verified': true,
+      'is_verified': false,
       'is_searchable': false,
       'created_at': FieldValue.serverTimestamp(),
     };
-
-    if (homeLat != null && homeLng != null) {
-      driverDoc['home_location'] = {'lat': homeLat, 'lng': homeLng};
-    }
 
     await _db.collection('drivers').doc(uid).set(driverDoc);
     return cred;

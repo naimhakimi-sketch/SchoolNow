@@ -77,6 +77,7 @@ class _DrivePageState extends State<DrivePage> {
   bool _isAfternoonRoute(String routeType) =>
       routeType == 'primary_pm' || routeType == 'secondary_pm';
 
+  // ignore: unused_element
   bool _canStartRouteNow(String routeType, DateTime now) {
     final start = switch (routeType) {
       'morning' => DateTime(now.year, now.month, now.day, 6, 0),
@@ -116,9 +117,9 @@ class _DrivePageState extends State<DrivePage> {
       _mapController.move(LatLng(lat, lng), 16);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Location error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Location error: $e')));
       }
     }
   }
@@ -165,11 +166,7 @@ class _DrivePageState extends State<DrivePage> {
 
     try {
       final now = DateTime.now();
-      if (!_canStartRouteNow(_selectedRouteType, now)) {
-        throw Exception(
-          'Service can only be activated at ${_routeLabel(_selectedRouteType)} start time.',
-        );
-      }
+      // Time-based restriction removed for easier testing
 
       final todayYmd =
           '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
@@ -440,7 +437,7 @@ class _DrivePageState extends State<DrivePage> {
       final ordered = pendingPickups.isEmpty
           ? const <Map<String, dynamic>>[]
           : _sortStopsByNearestNeighbor(origin: start, stops: pendingPickups);
-        return [start, ...ordered.map((e) => e['point'] as LatLng), school];
+      return [start, ...ordered.map((e) => e['point'] as LatLng), school];
     }
 
     final remainingDropoffs = <Map<String, dynamic>>[];
@@ -1559,12 +1556,14 @@ class _DrivePageState extends State<DrivePage> {
                                                           .toString();
 
                                                   final isAbsentToday =
-                                                    (student?['attendance_override'] ?? '')
-                                                        .toString() ==
-                                                      'absent' &&
-                                                    (student?['attendance_date_ymd'] ?? '')
-                                                        .toString() ==
-                                                      _todayYmd();
+                                                      (student?['attendance_override'] ??
+                                                                  '')
+                                                              .toString() ==
+                                                          'absent' &&
+                                                      (student?['attendance_date_ymd'] ??
+                                                                  '')
+                                                              .toString() ==
+                                                          _todayYmd();
 
                                                   final p = passengers
                                                       .firstWhere(
@@ -1588,10 +1587,10 @@ class _DrivePageState extends State<DrivePage> {
                                                         statusStr,
                                                       );
 
-                                                    final uiStatusEnum =
+                                                  final uiStatusEnum =
                                                       isAbsentToday
-                                                        ? BoardingStatus.absent
-                                                        : statusEnum;
+                                                      ? BoardingStatus.absent
+                                                      : statusEnum;
 
                                                   final arrivedLabel =
                                                       isAfternoon
@@ -1602,7 +1601,9 @@ class _DrivePageState extends State<DrivePage> {
                                                     decoration: BoxDecoration(
                                                       color: isAbsentToday
                                                           ? Colors.orange
-                                                                .withValues(alpha: 0.06)
+                                                                .withValues(
+                                                                  alpha: 0.06,
+                                                                )
                                                           : Colors.grey[50],
                                                       borderRadius:
                                                           BorderRadius.circular(
@@ -1620,7 +1621,7 @@ class _DrivePageState extends State<DrivePage> {
                                                         height: 48,
                                                         decoration: BoxDecoration(
                                                           color:
-                                                            uiStatusEnum ==
+                                                              uiStatusEnum ==
                                                                   BoardingStatus
                                                                       .boarded
                                                               ? Colors.green
@@ -1628,7 +1629,7 @@ class _DrivePageState extends State<DrivePage> {
                                                                       alpha:
                                                                           0.2,
                                                                     )
-                                                            : uiStatusEnum ==
+                                                              : uiStatusEnum ==
                                                                     BoardingStatus
                                                                         .alighted
                                                               ? Colors.blue
@@ -1636,7 +1637,7 @@ class _DrivePageState extends State<DrivePage> {
                                                                       alpha:
                                                                           0.2,
                                                                     )
-                                                            : uiStatusEnum ==
+                                                              : uiStatusEnum ==
                                                                     BoardingStatus
                                                                         .absent
                                                               ? Colors.orange
@@ -1658,11 +1659,11 @@ class _DrivePageState extends State<DrivePage> {
                                                                       .boarded
                                                               ? Icons
                                                                     .check_circle
-                                                            : uiStatusEnum ==
+                                                              : uiStatusEnum ==
                                                                     BoardingStatus
                                                                         .alighted
                                                               ? Icons.flag
-                                                            : uiStatusEnum ==
+                                                              : uiStatusEnum ==
                                                                     BoardingStatus
                                                                         .absent
                                                               ? Icons
@@ -1670,15 +1671,15 @@ class _DrivePageState extends State<DrivePage> {
                                                               : Icons
                                                                     .radio_button_unchecked,
                                                           color:
-                                                            uiStatusEnum ==
+                                                              uiStatusEnum ==
                                                                   BoardingStatus
                                                                       .boarded
                                                               ? Colors.green
-                                                            : uiStatusEnum ==
+                                                              : uiStatusEnum ==
                                                                     BoardingStatus
                                                                         .alighted
                                                               ? Colors.blue
-                                                            : uiStatusEnum ==
+                                                              : uiStatusEnum ==
                                                                     BoardingStatus
                                                                         .absent
                                                               ? Colors.orange
@@ -1696,14 +1697,14 @@ class _DrivePageState extends State<DrivePage> {
                                                         overflow: TextOverflow
                                                             .ellipsis,
                                                       ),
-                                                        subtitle: Text(
+                                                      subtitle: Text(
                                                         isAbsentToday
-                                                          ? 'Status: $statusStr • ABSENT TODAY'
-                                                          : 'Status: $statusStr',
+                                                            ? 'Status: $statusStr • ABSENT TODAY'
+                                                            : 'Status: $statusStr',
                                                         maxLines: 1,
-                                                        overflow:
-                                                          TextOverflow.ellipsis,
-                                                        ),
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                      ),
                                                       trailing: Row(
                                                         mainAxisSize:
                                                             MainAxisSize.min,

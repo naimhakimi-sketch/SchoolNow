@@ -1,13 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
 import 'screens/admin_login_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // Sign in anonymously to provide authentication context for Firestore operations
+  try {
+    await FirebaseAuth.instance.signInAnonymously();
+  } catch (e) {
+    // Continue even if anonymous sign-in fails
+    // The app may still work depending on Firestore rules
+  }
+
   runApp(const MyApp());
 }
 

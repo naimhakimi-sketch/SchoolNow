@@ -53,7 +53,7 @@ class ManageSchoolsScreen extends StatelessWidget {
                 ),
                 child: ListTile(
                   leading: CircleAvatar(
-                    backgroundColor: Colors.indigo.withOpacity(0.1),
+                    backgroundColor: Colors.indigo.withValues(alpha: 0.1),
                     child: const Icon(Icons.school, color: Colors.indigo),
                   ),
                   title: Text(
@@ -121,10 +121,13 @@ class ManageSchoolsScreen extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: type,
+                initialValue: type,
                 items: const [
                   DropdownMenuItem(value: 'Primary', child: Text('Primary')),
-                  DropdownMenuItem(value: 'Secondary', child: Text('Secondary')),
+                  DropdownMenuItem(
+                    value: 'Secondary',
+                    child: Text('Secondary'),
+                  ),
                 ],
                 onChanged: (v) => type = v!,
                 decoration: const InputDecoration(

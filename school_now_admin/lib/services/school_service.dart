@@ -13,7 +13,10 @@ class SchoolService {
       'name': name,
       'type': type,
       'address': address,
-      'pin_location': location,
+      'geo_location': {
+        'latitude': location.latitude,
+        'longitude': location.longitude,
+      },
     });
   }
 
@@ -32,7 +35,10 @@ class SchoolService {
       'name': name,
       'type': type,
       'address': address,
-      'pin_location': location,
+      'geo_location': {
+        'latitude': location.latitude,
+        'longitude': location.longitude,
+      },
     });
   }
 
