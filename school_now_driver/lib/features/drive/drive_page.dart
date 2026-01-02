@@ -344,8 +344,10 @@ class _DrivePageState extends State<DrivePage> {
                   .get();
               final parentId = (studentSnap.data()?['parent_id'] ?? '')
                   .toString();
-              final studentName =
-                  (studentSnap.data()?['student_name'] ?? studentId).toString();
+              final studentName = _displayStudentName(
+                studentSnap.data(),
+                studentId,
+              );
               if (parentId.isNotEmpty) {
                 await _notifications.createUnique(
                   notificationId: 'boarding_${tripId}_${studentId}_boarded',
@@ -421,6 +423,15 @@ class _DrivePageState extends State<DrivePage> {
         (m['lng'] as num?)?.toDouble() ?? (m['longitude'] as num?)?.toDouble();
     if (lat == null || lng == null) return null;
     return LatLng(lat, lng);
+  }
+
+  String _displayStudentName(Map<String, dynamic>? student, String studentId) {
+    if (student == null) return studentId;
+    return ((student['student_name'] ??
+            student['name'] ??
+            student['child_name'] ??
+            studentId))
+        .toString();
   }
 
   LatLng? _driverHome(Map<String, dynamic>? driverData) {
@@ -2145,9 +2156,10 @@ class _DrivePageState extends State<DrivePage> {
                                                       final student =
                                                           studentById[studentId];
                                                       final studentName =
-                                                          (student?['student_name'] ??
-                                                                  studentId)
-                                                              .toString();
+                                                          _displayStudentName(
+                                                            student,
+                                                            studentId,
+                                                          );
                                                       final parentPhone =
                                                           (student?['parent_phone'] ??
                                                                   '')
@@ -2365,10 +2377,11 @@ class _DrivePageState extends State<DrivePage> {
                                                                         (studentSnap.data()?['parent_id'] ??
                                                                                 '')
                                                                             .toString();
-                                                                    final studentName =
-                                                                        (studentSnap.data()?['student_name'] ??
-                                                                                studentId)
-                                                                            .toString();
+                                                                    final studentName = _displayStudentName(
+                                                                      studentSnap
+                                                                          .data(),
+                                                                      studentId,
+                                                                    );
                                                                     if (parentId
                                                                         .isNotEmpty) {
                                                                       final label = switch (next) {

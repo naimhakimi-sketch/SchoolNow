@@ -70,9 +70,9 @@ class StudentsPage extends StatelessWidget {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    studentName.isEmpty
-                                        ? studentId
-                                        : '$studentName ($studentId)',
+                                    studentName.isNotEmpty
+                                        ? studentName
+                                        : studentId,
                                   ),
                                   if (parentName.isNotEmpty)
                                     Padding(
@@ -176,9 +176,9 @@ class StudentsPage extends StatelessWidget {
                           return Card(
                             child: ListTile(
                               title: Text(
-                                studentName.isEmpty
-                                    ? studentId
-                                    : '$studentName ($studentId)',
+                                studentName.isNotEmpty
+                                    ? studentName
+                                    : studentId,
                               ),
                               subtitle: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
