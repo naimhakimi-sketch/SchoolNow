@@ -414,32 +414,20 @@ class _DriversPageState extends State<DriversPage> {
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
-                            if (dueText != null)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 6),
-                                child: Text(
-                                  'Next payment due: $dueText',
-                                  style: TextStyle(
-                                    color: daysLeft != null && daysLeft <= 2
-                                        ? Colors.red
-                                        : Colors.black87,
-                                    fontWeight:
-                                        daysLeft != null && daysLeft <= 2
-                                        ? FontWeight.bold
-                                        : FontWeight.normal,
-                                  ),
-                                ),
-                              ),
-                            StreamBuilder<
+                            if (dueText != null) const SizedBox.shrink(),
+                            FutureBuilder<
                               DocumentSnapshot<Map<String, dynamic>>
                             >(
-                              stream: FirebaseFirestore.instance
+                              future: FirebaseFirestore.instance
                                   .collection('parents')
                                   .doc(widget.parentId)
                                   .collection('children')
                                   .doc(widget.childDoc.id)
-                                  .snapshots(),
+                                  .get(),
                               builder: (context, childSnap) {
+                                if (!childSnap.hasData) {
+                                  return const SizedBox.shrink();
+                                }
                                 final childData = childSnap.data?.data() ?? {};
                                 final serviceEndDate =
                                     (childData['service_end_date']

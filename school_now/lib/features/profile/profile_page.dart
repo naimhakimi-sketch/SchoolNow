@@ -379,44 +379,21 @@ class ProfilePage extends StatelessWidget {
                               ),
                             ),
                             const Divider(height: 1),
-                            if (dueText != null)
-                              ListTile(
-                                title: const Text('Next Payment Due'),
-                                subtitle: Text(dueText),
-                                trailing:
-                                    (daysLeft != null &&
-                                        daysLeft <= 7 &&
-                                        daysLeft > 0)
-                                    ? Text(
-                                        '$daysLeft days left',
-                                        style: TextStyle(
-                                          color: daysLeft <= 2
-                                              ? Colors.red
-                                              : Colors.orange,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      )
-                                    : (daysLeft != null && daysLeft <= 0)
-                                    ? const Text(
-                                        'Overdue',
-                                        style: TextStyle(
-                                          color: Colors.red,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      )
-                                    : null,
-                              ),
+                            const SizedBox.shrink(),
                             const Divider(height: 1),
-                            StreamBuilder<
+                            FutureBuilder<
                               DocumentSnapshot<Map<String, dynamic>>
                             >(
-                              stream: FirebaseFirestore.instance
+                              future: FirebaseFirestore.instance
                                   .collection('parents')
                                   .doc(parentId)
                                   .collection('children')
                                   .doc(childDoc.id)
-                                  .snapshots(),
+                                  .get(),
                               builder: (context, childSnap) {
+                                if (!childSnap.hasData) {
+                                  return const SizedBox.shrink();
+                                }
                                 final childData = childSnap.data?.data() ?? {};
                                 final serviceEndDate =
                                     (childData['service_end_date']

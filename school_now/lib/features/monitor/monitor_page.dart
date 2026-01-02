@@ -808,8 +808,11 @@ class _MonitorPageState extends State<MonitorPage> {
         .childrenRef(widget.parentId)
         .doc(widget.childDoc.id);
 
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: _parentService.streamParent(widget.parentId),
+    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      future: FirebaseFirestore.instance
+          .collection('parents')
+          .doc(widget.parentId)
+          .get(),
       builder: (context, parentSnap) {
         final parent = parentSnap.data?.data() ?? const <String, dynamic>{};
         final parentPickupLocation = MonitorPage._pickupFromParent(parent);
@@ -818,8 +821,8 @@ class _MonitorPageState extends State<MonitorPage> {
             const <String, dynamic>{};
         final proximityAlertEnabled = notifications['proximity_alert'] == true;
 
-        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: childRef.snapshots(),
+        return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          future: childRef.get(),
           builder: (context, childSnap) {
             final child = childSnap.data?.data() ?? widget.childDoc.data();
             final assignedDriver = (child['assigned_driver_id'] ?? '')
@@ -836,11 +839,11 @@ class _MonitorPageState extends State<MonitorPage> {
                 .toString();
             final attending = override != 'absent';
 
-            return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance
+            return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+              future: FirebaseFirestore.instance
                   .collection('drivers')
                   .doc(assignedDriver)
-                  .snapshots(),
+                  .get(),
               builder: (context, driverSnap) {
                 final driver =
                     driverSnap.data?.data() ?? const <String, dynamic>{};
@@ -929,11 +932,11 @@ class _MonitorPageState extends State<MonitorPage> {
                   );
                 }
 
-                return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                  stream: FirebaseFirestore.instance
+                return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  future: FirebaseFirestore.instance
                       .collection('trips')
                       .doc(tripId)
-                      .snapshots(),
+                      .get(),
                   builder: (context, tripSnap) {
                     final trip = tripSnap.data?.data();
                     if (trip == null) {
@@ -1051,14 +1054,14 @@ class _MonitorPageState extends State<MonitorPage> {
                                     }
                                   }
 
-                                  return StreamBuilder<
+                                  return FutureBuilder<
                                     QuerySnapshot<Map<String, dynamic>>
                                   >(
-                                    stream: FirebaseFirestore.instance
+                                    future: FirebaseFirestore.instance
                                         .collection('drivers')
                                         .doc(assignedDriver)
                                         .collection('students')
-                                        .snapshots(),
+                                        .get(),
                                     builder: (context, studentsSnap) {
                                       final docs =
                                           studentsSnap.data?.docs ?? const [];
