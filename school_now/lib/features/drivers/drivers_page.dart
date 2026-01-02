@@ -131,6 +131,98 @@ class _DriversPageState extends State<DriversPage> {
     }
   }
 
+  Future<void> _renewService(
+    BuildContext context,
+    String driverId,
+    String driverName,
+    Map<String, dynamic> driverData,
+  ) async {
+    if (!mounted) return;
+
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+
+    // Capture context-dependent objects before async operations
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+
+    try {
+      final parentSnap = await FirebaseFirestore.instance
+          .collection('parents')
+          .doc(widget.parentId)
+          .get();
+      final parentData = parentSnap.data() ?? {};
+      final parentName =
+          (parentData['name'] ??
+                  FirebaseAuth.instance.currentUser?.displayName ??
+                  'Parent')
+              .toString();
+      final parentPhone = (parentData['contact_number'] ?? '').toString();
+
+      if (!mounted) return;
+
+      final amount = (driverData['monthly_fee'] as num?) ?? 0;
+
+      final paymentResult = await navigator.push<PaymentResult>(
+        MaterialPageRoute(
+          builder: (_) => PaymentPage(
+            parentId: widget.parentId,
+            driverId: driverId,
+            childId: widget.childDoc.id,
+            driverName: driverName,
+            amount: amount,
+          ),
+        ),
+      );
+
+      if (paymentResult == null) {
+        return;
+      }
+
+      final paymentId = paymentResult.paymentId;
+      final pickup = _pickupFromChild();
+
+      await _requestService.createServiceRequest(
+        driverId: driverId,
+        requestId:
+            '${widget.parentId}_${widget.childDoc.id}_renewal_${DateTime.now().millisecondsSinceEpoch}',
+        payload: {
+          'status': 'renewal',
+          'created_at': FieldValue.serverTimestamp(),
+          'updated_at': FieldValue.serverTimestamp(),
+          'parent_id': widget.parentId,
+          'parent_name': parentName,
+          'parent_phone': parentPhone,
+          'student_id': widget.childDoc.id,
+          'student_name': (widget.childDoc.data()['child_name'] ?? 'Student')
+              .toString(),
+          'pickup_location': pickup == null
+              ? null
+              : {'lat': pickup.latitude, 'lng': pickup.longitude},
+          'payment_id': paymentId,
+          'amount': amount,
+        },
+      );
+
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Service renewed successfully')),
+      );
+    } catch (e) {
+      setState(() {
+        _error = 'Failed to renew: $e';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final child = widget.childDoc.data();
@@ -167,17 +259,207 @@ class _DriversPageState extends State<DriversPage> {
           padding: const EdgeInsets.all(16),
           children: [
             if (assignedDriver.isNotEmpty)
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.green.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text('Assigned driver: $assignedDriver'),
+              StreamBuilder(
+                stream: FirebaseFirestore.instance
+                    .collection('drivers')
+                    .doc(assignedDriver)
+                    .snapshots(),
+                builder: (context, driverSnap) {
+                  final driverData = driverSnap.data?.data() ?? {};
+                  final driverName = (driverData['name'] ?? 'Driver')
+                      .toString();
+                  final driverContact = (driverData['contact_number'] ?? '')
+                      .toString();
+                  final driverVehicle = (driverData['transport_number'] ?? '')
+                      .toString();
+
+                  return StreamBuilder(
+                    stream: FirebaseFirestore.instance
+                        .collection('payments')
+                        .where('parent_id', isEqualTo: widget.parentId)
+                        .snapshots(),
+                    builder: (context, paySnap) {
+                      final docs = (paySnap.data as dynamic)?.docs as List?;
+                      if (docs == null) return const SizedBox.shrink();
+
+                      // Filter for this child and driver
+                      final filtered = docs.where((d) {
+                        final m = (d.data() as Map).cast<String, dynamic>();
+                        return (m['child_id'] ?? '').toString() ==
+                                widget.childDoc.id &&
+                            (m['driver_id'] ?? '').toString() == assignedDriver;
+                      }).toList();
+
+                      // Sort by most recent first
+                      filtered.sort((a, b) {
+                        final ma = (a.data() as Map).cast<String, dynamic>();
+                        final mb = (b.data() as Map).cast<String, dynamic>();
+                        final ta =
+                            (ma['created_at'] as Timestamp?)
+                                ?.millisecondsSinceEpoch ??
+                            0;
+                        final tb =
+                            (mb['created_at'] as Timestamp?)
+                                ?.millisecondsSinceEpoch ??
+                            0;
+                        return tb.compareTo(ta);
+                      });
+
+                      final latest = filtered.isNotEmpty
+                          ? filtered.first
+                          : null;
+                      final latestData =
+                          latest?.data() as Map<String, dynamic>?;
+                      final status = (latestData?['status'] ?? 'pending')
+                          .toString();
+                      final createdAt =
+                          (latestData?['created_at'] as Timestamp?)?.toDate();
+
+                      // Calculate due date: 1st of next month
+                      DateTime? dueDate;
+                      if (createdAt != null) {
+                        final nextMonth = createdAt.month == 12
+                            ? DateTime(createdAt.year + 1, 1, 1)
+                            : DateTime(createdAt.year, createdAt.month + 1, 1);
+                        dueDate = nextMonth;
+                      }
+
+                      int? daysLeft;
+                      String? dueText;
+                      if (dueDate != null) {
+                        final now = DateTime.now();
+                        final today = DateTime(now.year, now.month, now.day);
+                        daysLeft = dueDate.difference(today).inDays;
+                        dueText =
+                            '${dueDate.year.toString().padLeft(4, '0')}-${dueDate.month.toString().padLeft(2, '0')}-${dueDate.day.toString().padLeft(2, '0')}';
+                      }
+
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 16),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.shade50,
+                          border: Border.all(color: Colors.blue.shade200),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Assigned Driver',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleSmall
+                                            ?.copyWith(
+                                              color: Colors.blue.shade900,
+                                            ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        driverName,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                if (daysLeft != null && daysLeft <= 7)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: daysLeft <= 2
+                                          ? Colors.red.shade100
+                                          : Colors.orange.shade100,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      daysLeft <= 0
+                                          ? 'Expired'
+                                          : '$daysLeft days',
+                                      style: TextStyle(
+                                        color: daysLeft <= 2
+                                            ? Colors.red.shade700
+                                            : Colors.orange.shade700,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            if (driverContact.isNotEmpty)
+                              Text('Contact: $driverContact'),
+                            if (driverVehicle.isNotEmpty)
+                              Text('Vehicle: $driverVehicle'),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Payment Status: $status',
+                              style: TextStyle(
+                                color: status == 'completed'
+                                    ? Colors.green.shade700
+                                    : Colors.orange.shade700,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            if (dueText != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 6),
+                                child: Text(
+                                  'Next payment due: $dueText',
+                                  style: TextStyle(
+                                    color: daysLeft != null && daysLeft <= 2
+                                        ? Colors.red
+                                        : Colors.black87,
+                                    fontWeight:
+                                        daysLeft != null && daysLeft <= 2
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
+                                  ),
+                                ),
+                              ),
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: _submitting
+                                    ? null
+                                    : () => _renewService(
+                                        context,
+                                        assignedDriver,
+                                        driverName,
+                                        driverData,
+                                      ),
+                                icon: const Icon(Icons.refresh),
+                                label: const Text('Renew Service'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green,
+                                  foregroundColor: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                },
               ),
             if (_error != null)
               Padding(
-                padding: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.only(bottom: 12),
                 child: Text(
                   _error!,
                   style: TextStyle(color: Colors.red.shade700),

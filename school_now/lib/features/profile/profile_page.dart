@@ -282,23 +282,39 @@ class ProfilePage extends StatelessWidget {
                       final latest = filtered.first;
                       final m = (latest.data() as Map).cast<String, dynamic>();
                       final status = (m['status'] ?? 'pending').toString();
+                      final amount = (m['amount'] ?? 0).toString();
+                      final metadata =
+                          (m['metadata'] as Map?)?.cast<String, dynamic>() ??
+                          {};
+                      final cardLast4 =
+                          (metadata['card_last4'] ?? (m['card_last4'] ?? ''))
+                              .toString();
+                      final method = (metadata['method'] ?? (m['method'] ?? ''))
+                          .toString();
+                      final nameOnCard =
+                          (metadata['name_on_card'] ??
+                                  (m['name_on_card'] ?? ''))
+                              .toString();
                       final createdAt = (m['created_at'] as Timestamp?)
                           ?.toDate();
 
-                      DateTime? due;
+                      // Calculate due date: 1st of next month
+                      DateTime? dueDate;
                       if (createdAt != null) {
-                        due = createdAt.add(const Duration(days: 30));
+                        final nextMonth = createdAt.month == 12
+                            ? DateTime(createdAt.year + 1, 1, 1)
+                            : DateTime(createdAt.year, createdAt.month + 1, 1);
+                        dueDate = nextMonth;
                       }
 
                       String? dueText;
                       int? daysLeft;
-                      if (due != null) {
+                      if (dueDate != null) {
                         final now = DateTime.now();
-                        daysLeft = due
-                            .difference(DateTime(now.year, now.month, now.day))
-                            .inDays;
+                        final today = DateTime(now.year, now.month, now.day);
+                        daysLeft = dueDate.difference(today).inDays;
                         dueText =
-                            '${due.year.toString().padLeft(4, '0')}-${due.month.toString().padLeft(2, '0')}-${due.day.toString().padLeft(2, '0')}';
+                            '${dueDate.year.toString().padLeft(4, '0')}-${dueDate.month.toString().padLeft(2, '0')}-${dueDate.day.toString().padLeft(2, '0')}';
 
                         // SRS FR-PA-5.8: reminders 2 days and 1 day before due date.
                         if ((daysLeft == 2 || daysLeft == 1) &&
@@ -321,18 +337,73 @@ class ProfilePage extends StatelessWidget {
                         child: Column(
                           children: [
                             ListTile(
-                              title: const Text('Latest payment status'),
+                              title: const Text('Payment Status'),
                               subtitle: Text(status),
+                              trailing: status == 'completed'
+                                  ? Icon(
+                                      Icons.check_circle,
+                                      color: Colors.green.shade600,
+                                    )
+                                  : null,
                             ),
+                            const Divider(height: 1),
+                            ListTile(
+                              title: const Text('Amount'),
+                              subtitle: Text('RM $amount'),
+                            ),
+                            const Divider(height: 1),
+                            if (method.isNotEmpty)
+                              ListTile(
+                                title: const Text('Payment Method'),
+                                subtitle: Text(method),
+                              ),
+                            if (method.isNotEmpty) const Divider(height: 1),
+                            if (cardLast4.isNotEmpty)
+                              ListTile(
+                                title: const Text('Card Last 4'),
+                                subtitle: Text(cardLast4),
+                              ),
+                            if (cardLast4.isNotEmpty) const Divider(height: 1),
+                            if (nameOnCard.isNotEmpty)
+                              ListTile(
+                                title: const Text('Name on Card'),
+                                subtitle: Text(nameOnCard),
+                              ),
+                            if (nameOnCard.isNotEmpty) const Divider(height: 1),
+                            ListTile(
+                              title: const Text('Last Payment Date'),
+                              subtitle: Text(
+                                createdAt == null
+                                    ? 'N/A'
+                                    : '${createdAt.year.toString().padLeft(4, '0')}-${createdAt.month.toString().padLeft(2, '0')}-${createdAt.day.toString().padLeft(2, '0')}',
+                              ),
+                            ),
+                            const Divider(height: 1),
                             if (dueText != null)
                               ListTile(
-                                title: const Text('Next due date'),
+                                title: const Text('Next Payment Due'),
                                 subtitle: Text(dueText),
                                 trailing:
                                     (daysLeft != null &&
-                                        daysLeft >= 0 &&
-                                        daysLeft <= 5)
-                                    ? Text('$daysLeft days')
+                                        daysLeft <= 7 &&
+                                        daysLeft > 0)
+                                    ? Text(
+                                        '$daysLeft days left',
+                                        style: TextStyle(
+                                          color: daysLeft <= 2
+                                              ? Colors.red
+                                              : Colors.orange,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      )
+                                    : (daysLeft != null && daysLeft <= 0)
+                                    ? const Text(
+                                        'Overdue',
+                                        style: TextStyle(
+                                          color: Colors.red,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      )
                                     : null,
                               ),
                           ],
