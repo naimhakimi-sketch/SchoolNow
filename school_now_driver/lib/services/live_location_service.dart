@@ -29,7 +29,9 @@ class LiveLocationService {
       );
     } catch (_) {}
 
-    final tripRef = FirebaseDatabase.instance.ref(TripLiveLocation.pathForTrip(tripId));
+    final tripRef = FirebaseDatabase.instance.ref(
+      TripLiveLocation.pathForTrip(tripId),
+    );
     final driverRef = FirebaseDatabase.instance.ref('live_locations/$driverId');
     _sub?.cancel();
     _heartbeat?.cancel();
@@ -43,24 +45,24 @@ class LiveLocationService {
         timestamp: DateTime.now(),
       );
       final payload = loc.toJson();
-      await Future.wait([
-        tripRef.set(payload),
-        driverRef.set(payload),
-      ]);
+      await Future.wait([tripRef.set(payload), driverRef.set(payload)]);
       _lastSuccessfulWriteAt = DateTime.now();
     }
 
     // Write once immediately (so parents see something even before movement).
     try {
-      final first = await _location.getLocation();
-      await write(first);
+      final first = await _location.getLocation().timeout(
+        const Duration(seconds: 5),
+      );
+      await write(first).timeout(const Duration(seconds: 5));
     } catch (_) {}
 
     // Heartbeat: ensure at least one update per minute even if the platform
     // throttles stream callbacks or the device is stationary.
     _heartbeat = Timer.periodic(const Duration(minutes: 1), (_) async {
       final last = _lastSuccessfulWriteAt;
-      if (last != null && DateTime.now().difference(last) < const Duration(seconds: 55)) {
+      if (last != null &&
+          DateTime.now().difference(last) < const Duration(seconds: 55)) {
         return;
       }
       try {
@@ -89,14 +91,41 @@ class LiveLocationService {
   }
 
   Future<bool> _ensurePermissions() async {
-    bool serviceEnabled = await _location.serviceEnabled();
+    bool serviceEnabled = false;
+    try {
+      serviceEnabled = await _location.serviceEnabled().timeout(
+        const Duration(seconds: 6),
+      );
+    } catch (_) {
+      serviceEnabled = false;
+    }
     if (!serviceEnabled) {
-      serviceEnabled = await _location.requestService();
+      try {
+        serviceEnabled = await _location.requestService().timeout(
+          const Duration(seconds: 8),
+        );
+      } catch (_) {
+        serviceEnabled = false;
+      }
       if (!serviceEnabled) return false;
     }
-    PermissionStatus permissionGranted = await _location.hasPermission();
+
+    PermissionStatus permissionGranted = PermissionStatus.denied;
+    try {
+      permissionGranted = await _location.hasPermission().timeout(
+        const Duration(seconds: 4),
+      );
+    } catch (_) {
+      permissionGranted = PermissionStatus.denied;
+    }
     if (permissionGranted == PermissionStatus.denied) {
-      permissionGranted = await _location.requestPermission();
+      try {
+        permissionGranted = await _location.requestPermission().timeout(
+          const Duration(seconds: 8),
+        );
+      } catch (_) {
+        permissionGranted = PermissionStatus.denied;
+      }
       if (permissionGranted != PermissionStatus.granted) return false;
     }
     return true;

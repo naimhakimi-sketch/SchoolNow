@@ -53,6 +53,7 @@ class _DrivePageState extends State<DrivePage> {
   // Cache for school locations and types
   final Map<String, LatLng> _schoolLocations = {};
   final Map<String, String> _schoolTypes = {};
+  final Map<String, String> _schoolNames = {};
 
   String _todayYmd() {
     final now = DateTime.now();
@@ -109,6 +110,64 @@ class _DrivePageState extends State<DrivePage> {
 
   Future<void> _centerOnMyLocation() async {
     try {
+      // Use the already-tracked live location if available
+      if (_currentLocation != null) {
+        _mapController.move(_currentLocation!, 16);
+        return;
+      }
+
+      // Fallback: request location explicitly
+      bool serviceEnabled = await _deviceLocation.serviceEnabled();
+      if (!serviceEnabled) {
+        serviceEnabled = await _deviceLocation.requestService();
+        if (!serviceEnabled) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Location service is disabled')),
+            );
+          }
+          return;
+        }
+      }
+
+      PermissionStatus permission = await _deviceLocation.hasPermission();
+      if (permission == PermissionStatus.denied) {
+        permission = await _deviceLocation.requestPermission();
+        if (permission != PermissionStatus.granted) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Location permission denied')),
+            );
+          }
+          return;
+        }
+      }
+
+      final loc = await _deviceLocation.getLocation();
+      final lat = loc.latitude;
+      final lng = loc.longitude;
+      if (lat == null || lng == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not get location')),
+          );
+        }
+        return;
+      }
+
+      if (!mounted) return;
+      _mapController.move(LatLng(lat.toDouble(), lng.toDouble()), 16);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Location error: $e')));
+      }
+    }
+  }
+
+  Future<void> _centerAndZoom() async {
+    try {
       bool serviceEnabled = await _deviceLocation.serviceEnabled();
       if (!serviceEnabled) {
         serviceEnabled = await _deviceLocation.requestService();
@@ -126,7 +185,8 @@ class _DrivePageState extends State<DrivePage> {
       final lng = (loc.longitude ?? 0).toDouble();
       if (!mounted) return;
 
-      _mapController.move(LatLng(lat, lng), 16);
+      // Zoom closer than normal center
+      _mapController.move(LatLng(lat, lng), 18);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -427,7 +487,10 @@ class _DrivePageState extends State<DrivePage> {
         if (schoolDoc.exists) {
           final data = schoolDoc.data();
           final geoLocation = data?['geo_location'] as Map?;
-          final schoolType = (data?['type'] ?? 'primary').toString();
+          final schoolType = (data?['type'] ?? 'primary')
+              .toString()
+              .toLowerCase();
+          final schoolName = (data?['name'] ?? '').toString();
 
           if (geoLocation != null) {
             final lat = (geoLocation['lat'] as num?)?.toDouble();
@@ -435,12 +498,42 @@ class _DrivePageState extends State<DrivePage> {
             if (lat != null && lng != null) {
               _schoolLocations[schoolId] = LatLng(lat, lng);
               _schoolTypes[schoolId] = schoolType;
+              _schoolNames[schoolId] = schoolName;
             }
           }
         }
       } catch (e) {
         debugPrint('Error loading school location for $schoolId: $e');
       }
+    }
+  }
+
+  /// Eagerly fetch school types for filtering (blocking).
+  Future<void> _ensureSchoolTypesLoaded(
+    Map<String, Map<String, dynamic>> studentById,
+  ) async {
+    final schoolIds = studentById.values
+        .map((student) => (student['school_id'] ?? '').toString())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+
+    final missingSchoolIds = schoolIds
+        .where((id) => !_schoolTypes.containsKey(id))
+        .toList();
+
+    if (missingSchoolIds.isEmpty) return;
+
+    // Fetch all missing school types
+    final batch = await FirebaseFirestore.instance
+        .collection('schools')
+        .where(FieldPath.documentId, whereIn: missingSchoolIds)
+        .get();
+
+    for (final doc in batch.docs) {
+      final schoolType = (doc.data()['type'] ?? 'primary')
+          .toString()
+          .toLowerCase();
+      _schoolTypes[doc.id] = schoolType;
     }
   }
 
@@ -475,9 +568,25 @@ class _DrivePageState extends State<DrivePage> {
     LatLng? currentPosition,
   }) {
     final home = _driverHome(driverData);
-    if (home == null) return const [];
 
-    final start = currentPosition ?? home;
+    // Prefer explicit currentPosition (route start), then live GPS, then home,
+    // then first available pickup point as a graceful fallback.
+    LatLng? fallbackFirstStop;
+    for (final studentId in studentById.keys) {
+      final studentData = studentById[studentId]!;
+      final loc = (studentData['pickup_location'] as Map?)
+          ?.cast<String, dynamic>();
+      final p = _latLngFromMap(loc);
+      if (p != null) {
+        fallbackFirstStop = p;
+        break;
+      }
+    }
+
+    final start =
+        currentPosition ?? _currentLocation ?? home ?? fallbackFirstStop;
+    if (start == null) return const [];
+    final LatLng startNonNull = start;
 
     BoardingStatus statusOf(String studentId) {
       final p = passengers.firstWhere(
@@ -492,12 +601,6 @@ class _DrivePageState extends State<DrivePage> {
     LatLng? pickupOf(String studentId) {
       final data = studentById[studentId];
       final loc = (data?['pickup_location'] as Map?)?.cast<String, dynamic>();
-      return _latLngFromMap(loc);
-    }
-
-    LatLng? dropoffOf(String studentId) {
-      final data = studentById[studentId];
-      final loc = (data?['dropoff_location'] as Map?)?.cast<String, dynamic>();
       return _latLngFromMap(loc);
     }
 
@@ -547,24 +650,27 @@ class _DrivePageState extends State<DrivePage> {
 
       final orderedPickups = pendingPickups.isEmpty
           ? const <Map<String, dynamic>>[]
-          : _sortStopsByNearestNeighbor(origin: start, stops: pendingPickups);
+          : _sortStopsByNearestNeighbor(
+              origin: startNonNull,
+              stops: pendingPickups,
+            );
 
       final orderedSchools = schoolStops.isEmpty
           ? const <Map<String, dynamic>>[]
           : _sortStopsByNearestNeighbor(
               origin: orderedPickups.isNotEmpty
                   ? orderedPickups.last['point'] as LatLng
-                  : start,
+                  : startNonNull,
               stops: schoolStops,
             );
 
       return [
-        start,
+        startNonNull,
         ...orderedPickups.map((e) => e['point'] as LatLng),
         ...orderedSchools.map((e) => e['point'] as LatLng),
       ];
     } else {
-      // Afternoon route: current position -> schools (filtered by type for school sessions) -> student dropoffs -> home
+      // Afternoon route: current position -> schools (if needed) -> student dropoffs -> home
       final schoolStops = <Map<String, dynamic>>[];
       final remainingDropoffs = <Map<String, dynamic>>[];
 
@@ -575,14 +681,32 @@ class _DrivePageState extends State<DrivePage> {
           ? 'secondary'
           : null;
 
-      // Add schools that have active students (filtered by type for school sessions)
+      // Check if any students still need to be picked up from school (notBoarded)
+      bool hasStudentsAtSchool = false;
       for (final schoolId in schoolsWithActiveStudents.keys) {
-        final schoolLocation = _getSchoolLocation(schoolId);
-        final schoolType = _schoolTypes[schoolId] ?? 'primary';
+        final studentIds = schoolsWithActiveStudents[schoolId] ?? [];
+        for (final studentId in studentIds) {
+          final status = statusOf(studentId);
+          if (status == BoardingStatus.notBoarded) {
+            hasStudentsAtSchool = true;
+            break;
+          }
+        }
+        if (hasStudentsAtSchool) break;
+      }
 
-        if (schoolLocation != null &&
-            (targetSchoolType == null || schoolType == targetSchoolType)) {
-          schoolStops.add({'school_id': schoolId, 'point': schoolLocation});
+      // Only add schools to route if there are students still waiting to be picked up
+      if (hasStudentsAtSchool) {
+        // Add schools that have active students (filtered by type for school sessions)
+        for (final schoolId in schoolsWithActiveStudents.keys) {
+          final schoolLocation = _getSchoolLocation(schoolId);
+          final schoolType = _schoolTypes[schoolId] ?? 'primary';
+
+          if (schoolLocation != null &&
+              (targetSchoolType == null ||
+                  schoolType.toLowerCase() == targetSchoolType)) {
+            schoolStops.add({'school_id': schoolId, 'point': schoolLocation});
+          }
         }
       }
 
@@ -591,7 +715,8 @@ class _DrivePageState extends State<DrivePage> {
           ? schoolsWithActiveStudents.keys
                 .where(
                   (schoolId) =>
-                      (_schoolTypes[schoolId] ?? 'primary') == targetSchoolType,
+                      (_schoolTypes[schoolId] ?? 'primary').toLowerCase() ==
+                      targetSchoolType,
                 )
                 .toSet()
           : schoolsWithActiveStudents.keys.toSet();
@@ -611,7 +736,8 @@ class _DrivePageState extends State<DrivePage> {
             status == BoardingStatus.alighted) {
           continue;
         }
-        final dropoff = dropoffOf(studentId);
+        // For afternoon routes, drop off at home (pickup_location)
+        final dropoff = pickupOf(studentId);
         if (dropoff != null) {
           remainingDropoffs.add({'student_id': studentId, 'point': dropoff});
         }
@@ -619,22 +745,25 @@ class _DrivePageState extends State<DrivePage> {
 
       final orderedSchools = schoolStops.isEmpty
           ? const <Map<String, dynamic>>[]
-          : _sortStopsByNearestNeighbor(origin: start, stops: schoolStops);
+          : _sortStopsByNearestNeighbor(
+              origin: startNonNull,
+              stops: schoolStops,
+            );
 
       final orderedDropoffs = remainingDropoffs.isEmpty
           ? const <Map<String, dynamic>>[]
           : _sortStopsByNearestNeighbor(
               origin: orderedSchools.isNotEmpty
                   ? orderedSchools.last['point'] as LatLng
-                  : start,
+                  : startNonNull,
               stops: remainingDropoffs,
             );
 
       return [
-        start,
+        startNonNull,
         ...orderedSchools.map((e) => e['point'] as LatLng),
         ...orderedDropoffs.map((e) => e['point'] as LatLng),
-        _getCachedOperatorLocation() ?? home,
+        (_getCachedOperatorLocation() ?? home) ?? startNonNull,
       ];
     }
   }
@@ -648,9 +777,11 @@ class _DrivePageState extends State<DrivePage> {
   }) {
     final home = _driverHome(driverData);
     final school = _schoolPoint(driverData);
-    if (home == null || school == null) return null;
 
-    final start = currentPosition ?? home;
+    // Use the passed currentPosition, then live GPS, then home, then school.
+    final start = currentPosition ?? _currentLocation ?? home ?? school;
+    if (start == null) return null;
+    final LatLng startNonNull = start;
 
     final isAfternoon = _isAfternoonRoute(routeType);
 
@@ -688,7 +819,7 @@ class _DrivePageState extends State<DrivePage> {
       }
       if (pendingPickups.isNotEmpty) {
         final ordered = _sortStopsByNearestNeighbor(
-          origin: start,
+          origin: startNonNull,
           stops: pendingPickups,
         );
         return ordered.first['point'] as LatLng;
@@ -715,7 +846,7 @@ class _DrivePageState extends State<DrivePage> {
     }
     if (pendingDropoffs.isNotEmpty) {
       final ordered = _sortStopsByNearestNeighbor(
-        origin: school,
+        origin: school ?? startNonNull,
         stops: pendingDropoffs,
       );
       return ordered.first['point'] as LatLng;
@@ -776,6 +907,41 @@ class _DrivePageState extends State<DrivePage> {
           width: 44,
           height: 44,
           child: const Icon(Icons.school, color: Colors.blue, size: 40),
+        ),
+      );
+    }
+
+    // Add markers for cached schools (destinations)
+    for (final entry in _schoolLocations.entries) {
+      final sid = entry.key;
+      final point = entry.value;
+      final type = _schoolTypes[sid] ?? 'primary';
+      final name = _schoolNames[sid] ?? '';
+
+      Color color;
+      switch (type) {
+        case 'secondary':
+          color = Colors.green;
+          break;
+        case 'primary':
+        default:
+          color = Colors.blue;
+      }
+
+      markers.add(
+        Marker(
+          point: point,
+          width: 44,
+          height: 44,
+          child: GestureDetector(
+            onTap: () {
+              _mapController.move(point, 16);
+            },
+            child: Tooltip(
+              message: name.isNotEmpty ? name : 'School',
+              child: Icon(Icons.school, color: color, size: 36),
+            ),
+          ),
         ),
       );
     }
@@ -909,13 +1075,23 @@ class _DrivePageState extends State<DrivePage> {
             if (markers.isNotEmpty) MarkerLayer(markers: markers),
           ],
         ),
+        // Move center/zoom buttons to top-right so they're visible above overlays
         Positioned(
           right: 10,
-          bottom: 10,
+          top: 100,
           child: FloatingActionButton.small(
             heroTag: 'drive_center',
             onPressed: _centerOnMyLocation,
             child: const Icon(Icons.my_location),
+          ),
+        ),
+        Positioned(
+          right: 10,
+          top: 160,
+          child: FloatingActionButton.small(
+            heroTag: 'drive_zoom',
+            onPressed: _centerAndZoom,
+            child: const Icon(Icons.zoom_in),
           ),
         ),
       ],
@@ -1032,1086 +1208,1158 @@ class _DrivePageState extends State<DrivePage> {
             final studentDocs = studentsSnap.data?.docs ?? const [];
             final studentById = {for (final d in studentDocs) d.id: d.data()};
 
-            // Load school locations
+            // Load school locations asynchronously (for map markers)
             WidgetsBinding.instance.addPostFrameCallback((_) {
               _loadSchoolLocations(studentById);
             });
 
-            return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>?>(
-              stream: _tripService.streamActiveTripForDriver(widget.driverId),
-              builder: (context, tripSnap) {
-                final tripDoc = tripSnap.data;
-                final trip = tripDoc?.data();
+            // Wrap in FutureBuilder to ensure school types are loaded before filtering
+            return FutureBuilder<void>(
+              future: _ensureSchoolTypesLoaded(studentById),
+              builder: (context, _) {
+                return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>?>(
+                  stream: _tripService.streamActiveTripForDriver(
+                    widget.driverId,
+                  ),
+                  builder: (context, tripSnap) {
+                    final tripDoc = tripSnap.data;
+                    final trip = tripDoc?.data();
 
-                final tripId = tripDoc?.id;
-                final passengers =
-                    (trip?['passengers'] as List?)
-                        ?.cast<Map<String, dynamic>>() ??
-                    const [];
-                final routeType = (trip?['route_type'] ?? _selectedRouteType)
-                    .toString();
-                final studentIds = studentById.keys;
+                    final tripId = tripDoc?.id;
+                    final passengers =
+                        (trip?['passengers'] as List?)
+                            ?.cast<Map<String, dynamic>>() ??
+                        const [];
+                    final routeType =
+                        (trip?['route_type'] ?? _selectedRouteType).toString();
+                    final studentIds = studentById.keys;
 
-                final orderedStudentIds = studentById.entries.toList()
-                  ..sort((a, b) {
-                    final an = (a.value['student_name'] ?? a.key)
-                        .toString()
-                        .toLowerCase();
-                    final bn = (b.value['student_name'] ?? b.key)
-                        .toString()
-                        .toLowerCase();
-                    return an.compareTo(bn);
-                  });
+                    final isAfternoon = _isAfternoonRoute(routeType);
 
-                final nextDest = tripId == null
-                    ? null
-                    : _nextDestination(
-                        routeType: routeType,
-                        driverData: driverData,
-                        passengers: passengers,
-                        studentById: studentById,
-                        currentPosition: _currentRouteStart,
-                      );
+                    // For PM sessions, filter students by school type
+                    final targetSchoolType = routeType == 'primary_pm'
+                        ? 'primary'
+                        : routeType == 'secondary_pm'
+                        ? 'secondary'
+                        : null;
 
-                final isAfternoon = _isAfternoonRoute(routeType);
-                final canArriveAtSchool =
-                    tripId != null &&
-                    !isAfternoon &&
-                    _allPickedUpOrAbsent(
-                      passengers: passengers,
-                      studentIds: studentIds,
-                    );
+                    final filteredStudentById = targetSchoolType != null
+                        ? {
+                            for (final entry in studentById.entries)
+                              if ((_schoolTypes[(entry.value['school_id'] ?? '')
+                                              .toString()] ??
+                                          'primary')
+                                      .toLowerCase() ==
+                                  targetSchoolType)
+                                entry.key: entry.value,
+                          }
+                        : studentById;
 
-                final canEnd =
-                    tripId != null &&
-                    _canEndSession(
-                      passengers: passengers,
-                      studentIds: studentIds,
-                    );
+                    final orderedStudentIds =
+                        filteredStudentById.entries.toList()..sort((a, b) {
+                          final an = (a.value['student_name'] ?? a.key)
+                              .toString()
+                              .toLowerCase();
+                          final bn = (b.value['student_name'] ?? b.key)
+                              .toString()
+                              .toLowerCase();
+                          return an.compareTo(bn);
+                        });
 
-                return Scaffold(
-                  body: Stack(
-                    children: [
-                      // Full screen map
-                      _buildFullScreenMap(
-                        driverData: driverData,
-                        routeType: tripId == null
-                            ? _selectedRouteType
-                            : routeType,
-                        passengers: passengers,
-                        studentById: studentById,
-                      ),
+                    final nextDest = tripId == null
+                        ? null
+                        : _nextDestination(
+                            routeType: routeType,
+                            driverData: driverData,
+                            passengers: passengers,
+                            studentById: filteredStudentById,
+                            currentPosition: _currentRouteStart,
+                          );
+                    final canArriveAtSchool =
+                        tripId != null &&
+                        !isAfternoon &&
+                        _allPickedUpOrAbsent(
+                          passengers: passengers,
+                          studentIds: studentIds,
+                        );
 
-                      // Top overlay - Demo badge and route info
-                      SafeArea(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  if (widget.isDemoMode)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 6,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.orange,
-                                        borderRadius: BorderRadius.circular(20),
-                                      ),
-                                      child: const Text(
-                                        'DEMO',
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                  const Spacer(),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 6,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(20),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withValues(
-                                            alpha: 0.2,
-                                          ),
-                                          blurRadius: 4,
-                                          offset: const Offset(0, 2),
-                                        ),
-                                      ],
-                                    ),
-                                    child: Text(
-                                      tripId == null
-                                          ? _routeLabel(_selectedRouteType)
-                                          : _routeLabel(routeType),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
+                    final canEnd =
+                        tripId != null &&
+                        _canEndSession(
+                          passengers: passengers,
+                          studentIds: filteredStudentById.keys,
+                        );
+
+                    return Scaffold(
+                      body: Stack(
+                        children: [
+                          // Full screen map
+                          _buildFullScreenMap(
+                            driverData: driverData,
+                            routeType: tripId == null
+                                ? _selectedRouteType
+                                : routeType,
+                            passengers: passengers,
+                            studentById: filteredStudentById,
                           ),
-                        ),
-                      ),
 
-                      // Bottom overlay - Main controls
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        child: SafeArea(
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: const BorderRadius.vertical(
-                                top: Radius.circular(20),
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.1),
-                                  blurRadius: 10,
-                                  offset: const Offset(0, -2),
-                                ),
-                              ],
-                            ),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                // Drag handle
-                                Container(
-                                  margin: const EdgeInsets.only(top: 8),
-                                  width: 40,
-                                  height: 4,
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey[300],
-                                    borderRadius: BorderRadius.circular(2),
-                                  ),
-                                ),
-
-                                Padding(
-                                  padding: const EdgeInsets.all(16),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
+                          // Top overlay - Demo badge and route info
+                          SafeArea(
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
                                     children: [
-                                      // Error message
-                                      if (_error != null) ...[
+                                      if (widget.isDemoMode)
                                         Container(
-                                          width: double.infinity,
-                                          padding: const EdgeInsets.all(12),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 6,
+                                          ),
                                           decoration: BoxDecoration(
-                                            color: Colors.red.shade100,
+                                            color: Colors.orange,
                                             borderRadius: BorderRadius.circular(
-                                              8,
+                                              20,
                                             ),
                                           ),
-                                          child: Text(
-                                            _error!,
+                                          child: const Text(
+                                            'DEMO',
                                             style: TextStyle(
-                                              color: Colors.red.shade900,
-                                              fontSize: 13,
+                                              color: Colors.white,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
                                             ),
                                           ),
                                         ),
-                                        const SizedBox(height: 12),
-                                      ],
-
-                                      // Route selector (when no active trip)
-                                      if (tripId == null) ...[
-                                        Row(
-                                          children: [
-                                            const Text(
-                                              'Route:',
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.w600,
+                                      const Spacer(),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 6,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(
+                                            20,
+                                          ),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.black.withValues(
+                                                alpha: 0.2,
                                               ),
-                                            ),
-                                            const SizedBox(width: 12),
-                                            Expanded(
-                                              child: DropdownButton<String>(
-                                                value: _selectedRouteType,
-                                                isExpanded: true,
-                                                items: const [
-                                                  DropdownMenuItem(
-                                                    value: 'morning',
-                                                    child: Text('Morning'),
-                                                  ),
-                                                  DropdownMenuItem(
-                                                    value: 'primary_pm',
-                                                    child: Text('Primary PM'),
-                                                  ),
-                                                  DropdownMenuItem(
-                                                    value: 'secondary_pm',
-                                                    child: Text('Secondary PM'),
-                                                  ),
-                                                ],
-                                                onChanged: (v) {
-                                                  if (v == null) return;
-                                                  setState(() {
-                                                    _selectedRouteType = v;
-                                                  });
-                                                },
-                                              ),
+                                              blurRadius: 4,
+                                              offset: const Offset(0, 2),
                                             ),
                                           ],
                                         ),
-                                        const SizedBox(height: 16),
-                                      ],
-
-                                      // Main action buttons
-                                      if (tripId == null)
-                                        SizedBox(
-                                          width: double.infinity,
-                                          height: 50,
-                                          child: ElevatedButton(
-                                            onPressed: _loadingAction
-                                                ? null
-                                                : _startTrip,
-                                            style: ElevatedButton.styleFrom(
-                                              backgroundColor: Theme.of(
-                                                context,
-                                              ).colorScheme.primary,
-                                              foregroundColor: Colors.white,
-                                              shape: RoundedRectangleBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(12),
-                                              ),
-                                            ),
-                                            child: _loadingAction
-                                                ? const SizedBox(
-                                                    width: 20,
-                                                    height: 20,
-                                                    child:
-                                                        CircularProgressIndicator(
-                                                          strokeWidth: 2,
-                                                          color: Colors.white,
-                                                        ),
-                                                  )
-                                                : const Row(
-                                                    mainAxisAlignment:
-                                                        MainAxisAlignment
-                                                            .center,
-                                                    children: [
-                                                      Icon(Icons.play_arrow),
-                                                      SizedBox(width: 8),
-                                                      Text(
-                                                        'Start Service',
-                                                        style: TextStyle(
-                                                          fontSize: 16,
-                                                          fontWeight:
-                                                              FontWeight.w600,
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
+                                        child: Text(
+                                          tripId == null
+                                              ? _routeLabel(_selectedRouteType)
+                                              : _routeLabel(routeType),
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 13,
                                           ),
-                                        )
-                                      else ...[
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              flex: 2,
-                                              child: SizedBox(
-                                                height: 50,
-                                                child: ElevatedButton(
-                                                  onPressed:
-                                                      (_loadingAction ||
-                                                          !canEnd)
-                                                      ? null
-                                                      : () => _endTrip(tripId),
-                                                  style: ElevatedButton.styleFrom(
-                                                    backgroundColor: Colors.red,
-                                                    foregroundColor:
-                                                        Colors.white,
-                                                    shape: RoundedRectangleBorder(
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                            12,
-                                                          ),
-                                                    ),
-                                                  ),
-                                                  child: _loadingAction
-                                                      ? const SizedBox(
-                                                          width: 20,
-                                                          height: 20,
-                                                          child:
-                                                              CircularProgressIndicator(
-                                                                strokeWidth: 2,
-                                                                color: Colors
-                                                                    .white,
-                                                              ),
-                                                        )
-                                                      : Row(
-                                                          mainAxisAlignment:
-                                                              MainAxisAlignment
-                                                                  .center,
-                                                          children: [
-                                                            const Icon(
-                                                              Icons.stop,
-                                                            ),
-                                                            const SizedBox(
-                                                              width: 8,
-                                                            ),
-                                                            Text(
-                                                              canEnd
-                                                                  ? 'End Service'
-                                                                  : 'End (Not ready)',
-                                                              style: const TextStyle(
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .w600,
-                                                              ),
-                                                            ),
-                                                          ],
-                                                        ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+
+                          // Bottom overlay - Main controls
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            child: SafeArea(
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: const BorderRadius.vertical(
+                                    top: Radius.circular(20),
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.1,
+                                      ),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, -2),
+                                    ),
+                                  ],
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    // Drag handle
+                                    Container(
+                                      margin: const EdgeInsets.only(top: 8),
+                                      width: 40,
+                                      height: 4,
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey[300],
+                                        borderRadius: BorderRadius.circular(2),
+                                      ),
+                                    ),
+
+                                    Padding(
+                                      padding: const EdgeInsets.all(16),
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          // Error message
+                                          if (_error != null) ...[
+                                            Container(
+                                              width: double.infinity,
+                                              padding: const EdgeInsets.all(12),
+                                              decoration: BoxDecoration(
+                                                color: Colors.red.shade100,
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                              ),
+                                              child: Text(
+                                                _error!,
+                                                style: TextStyle(
+                                                  color: Colors.red.shade900,
+                                                  fontSize: 13,
                                                 ),
                                               ),
                                             ),
-                                            const SizedBox(width: 8),
+                                            const SizedBox(height: 12),
+                                          ],
+
+                                          // Route selector (when no active trip)
+                                          if (tripId == null) ...[
+                                            Row(
+                                              children: [
+                                                const Text(
+                                                  'Route:',
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 12),
+                                                Expanded(
+                                                  child: DropdownButton<String>(
+                                                    value: _selectedRouteType,
+                                                    isExpanded: true,
+                                                    items: const [
+                                                      DropdownMenuItem(
+                                                        value: 'morning',
+                                                        child: Text('Morning'),
+                                                      ),
+                                                      DropdownMenuItem(
+                                                        value: 'primary_pm',
+                                                        child: Text(
+                                                          'Primary PM',
+                                                        ),
+                                                      ),
+                                                      DropdownMenuItem(
+                                                        value: 'secondary_pm',
+                                                        child: Text(
+                                                          'Secondary PM',
+                                                        ),
+                                                      ),
+                                                    ],
+                                                    onChanged: (v) {
+                                                      if (v == null) return;
+                                                      setState(() {
+                                                        _selectedRouteType = v;
+                                                      });
+                                                    },
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 16),
+                                          ],
+
+                                          // Main action buttons
+                                          if (tripId == null)
                                             SizedBox(
+                                              width: double.infinity,
                                               height: 50,
                                               child: ElevatedButton(
                                                 onPressed: _loadingAction
                                                     ? null
-                                                    : () {
-                                                        setState(() {
-                                                          _showQrOverlay =
-                                                              !_showQrOverlay;
-                                                        });
-                                                      },
+                                                    : _startTrip,
                                                 style: ElevatedButton.styleFrom(
-                                                  backgroundColor: Colors.white,
-                                                  foregroundColor: Theme.of(
+                                                  backgroundColor: Theme.of(
                                                     context,
                                                   ).colorScheme.primary,
-                                                  side: BorderSide(
-                                                    color: Theme.of(
-                                                      context,
-                                                    ).colorScheme.primary,
-                                                  ),
+                                                  foregroundColor: Colors.white,
                                                   shape: RoundedRectangleBorder(
                                                     borderRadius:
                                                         BorderRadius.circular(
                                                           12,
                                                         ),
                                                   ),
-                                                  padding:
-                                                      const EdgeInsets.symmetric(
-                                                        horizontal: 16,
-                                                      ),
                                                 ),
-                                                child: const Icon(
-                                                  Icons.qr_code_scanner,
-                                                  size: 28,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              child: SizedBox(
-                                                height: 44,
-                                                child: OutlinedButton(
-                                                  onPressed:
-                                                      (_loadingAction ||
-                                                          nextDest == null)
-                                                      ? null
-                                                      : () => _focusNextStop(
-                                                          nextDest,
-                                                        ),
-                                                  style: OutlinedButton.styleFrom(
-                                                    shape: RoundedRectangleBorder(
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                            12,
+                                                child: _loadingAction
+                                                    ? const SizedBox(
+                                                        width: 20,
+                                                        height: 20,
+                                                        child:
+                                                            CircularProgressIndicator(
+                                                              strokeWidth: 2,
+                                                              color:
+                                                                  Colors.white,
+                                                            ),
+                                                      )
+                                                    : const Row(
+                                                        mainAxisAlignment:
+                                                            MainAxisAlignment
+                                                                .center,
+                                                        children: [
+                                                          Icon(
+                                                            Icons.play_arrow,
                                                           ),
-                                                    ),
-                                                  ),
-                                                  child: const Row(
-                                                    mainAxisAlignment:
-                                                        MainAxisAlignment
-                                                            .center,
-                                                    children: [
-                                                      Icon(
-                                                        Icons.navigation,
-                                                        size: 18,
-                                                      ),
-                                                      SizedBox(width: 8),
-                                                      Text(
-                                                        'Navigate to Next',
-                                                        style: TextStyle(
-                                                          fontSize: 13,
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                            if (canArriveAtSchool) ...[
-                                              const SizedBox(width: 8),
-                                              SizedBox(
-                                                height: 44,
-                                                child: ElevatedButton(
-                                                  onPressed: _loadingAction
-                                                      ? null
-                                                      : () async {
-                                                          setState(() {
-                                                            _loadingAction =
-                                                                true;
-                                                            _error = null;
-                                                          });
-                                                          try {
-                                                            await _tripService
-                                                                .markAllArrivedAtSchool(
-                                                                  tripId,
-                                                                );
-                                                          } catch (e) {
-                                                            setState(() {
-                                                              _error =
-                                                                  'Failed to mark arrived: $e';
-                                                            });
-                                                          } finally {
-                                                            if (mounted) {
-                                                              setState(() {
-                                                                _loadingAction =
-                                                                    false;
-                                                              });
-                                                            }
-                                                          }
-                                                        },
-                                                  style: ElevatedButton.styleFrom(
-                                                    shape: RoundedRectangleBorder(
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                            12,
+                                                          SizedBox(width: 8),
+                                                          Text(
+                                                            'Start Service',
+                                                            style: TextStyle(
+                                                              fontSize: 16,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w600,
+                                                            ),
                                                           ),
-                                                    ),
-                                                  ),
-                                                  child: const Text(
-                                                    'Arrived',
-                                                    style: TextStyle(
-                                                      fontSize: 13,
-                                                    ),
-                                                  ),
-                                                ),
+                                                        ],
+                                                      ),
                                               ),
-                                            ],
-                                          ],
-                                        ),
-                                        const SizedBox(height: 8),
-                                        SizedBox(
-                                          width: double.infinity,
-                                          height: 44,
-                                          child: OutlinedButton(
-                                            onPressed: () {
-                                              setState(() {
-                                                _showStudentList =
-                                                    !_showStudentList;
-                                              });
-                                            },
-                                            style: OutlinedButton.styleFrom(
-                                              shape: RoundedRectangleBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(12),
-                                              ),
-                                            ),
-                                            child: Row(
-                                              mainAxisAlignment:
-                                                  MainAxisAlignment.center,
+                                            )
+                                          else ...[
+                                            Row(
                                               children: [
-                                                const Icon(
-                                                  Icons.people,
-                                                  size: 18,
-                                                ),
-                                                const SizedBox(width: 8),
-                                                Text(
-                                                  'Student List (${studentById.length})',
-                                                  style: const TextStyle(
-                                                    fontSize: 13,
+                                                Expanded(
+                                                  flex: 2,
+                                                  child: SizedBox(
+                                                    height: 50,
+                                                    child: ElevatedButton(
+                                                      onPressed:
+                                                          (_loadingAction ||
+                                                              !canEnd)
+                                                          ? null
+                                                          : () => _endTrip(
+                                                              tripId,
+                                                            ),
+                                                      style: ElevatedButton.styleFrom(
+                                                        backgroundColor:
+                                                            Colors.red,
+                                                        foregroundColor:
+                                                            Colors.white,
+                                                        shape: RoundedRectangleBorder(
+                                                          borderRadius:
+                                                              BorderRadius.circular(
+                                                                12,
+                                                              ),
+                                                        ),
+                                                      ),
+                                                      child: _loadingAction
+                                                          ? const SizedBox(
+                                                              width: 20,
+                                                              height: 20,
+                                                              child:
+                                                                  CircularProgressIndicator(
+                                                                    strokeWidth:
+                                                                        2,
+                                                                    color: Colors
+                                                                        .white,
+                                                                  ),
+                                                            )
+                                                          : Row(
+                                                              mainAxisAlignment:
+                                                                  MainAxisAlignment
+                                                                      .center,
+                                                              children: [
+                                                                const Icon(
+                                                                  Icons.stop,
+                                                                ),
+                                                                const SizedBox(
+                                                                  width: 8,
+                                                                ),
+                                                                Text(
+                                                                  canEnd
+                                                                      ? 'End Service'
+                                                                      : 'End (Not ready)',
+                                                                  style: const TextStyle(
+                                                                    fontWeight:
+                                                                        FontWeight
+                                                                            .w600,
+                                                                  ),
+                                                                ),
+                                                              ],
+                                                            ),
+                                                    ),
                                                   ),
                                                 ),
                                                 const SizedBox(width: 8),
-                                                Icon(
-                                                  _showStudentList
-                                                      ? Icons
-                                                            .keyboard_arrow_down
-                                                      : Icons.keyboard_arrow_up,
-                                                  size: 18,
+                                                SizedBox(
+                                                  height: 50,
+                                                  child: ElevatedButton(
+                                                    onPressed: _loadingAction
+                                                        ? null
+                                                        : () {
+                                                            setState(() {
+                                                              _showQrOverlay =
+                                                                  !_showQrOverlay;
+                                                            });
+                                                          },
+                                                    style: ElevatedButton.styleFrom(
+                                                      backgroundColor:
+                                                          Colors.white,
+                                                      foregroundColor: Theme.of(
+                                                        context,
+                                                      ).colorScheme.primary,
+                                                      side: BorderSide(
+                                                        color: Theme.of(
+                                                          context,
+                                                        ).colorScheme.primary,
+                                                      ),
+                                                      shape: RoundedRectangleBorder(
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              12,
+                                                            ),
+                                                      ),
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 16,
+                                                          ),
+                                                    ),
+                                                    child: const Icon(
+                                                      Icons.qr_code_scanner,
+                                                      size: 28,
+                                                    ),
+                                                  ),
                                                 ),
                                               ],
                                             ),
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-
-                      // QR overlay
-                      if (_showQrOverlay && tripId != null)
-                        Positioned(
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          top: MediaQuery.of(context).size.height * 0.25,
-                          child: GestureDetector(
-                            onTap: () {
-                              setState(() {
-                                _showQrOverlay = false;
-                              });
-                            },
-                            child: Container(
-                              color: Colors.black.withValues(alpha: 0.5),
-                              child: GestureDetector(
-                                onTap: () {},
-                                child: Container(
-                                  margin: const EdgeInsets.only(top: 60),
-                                  decoration: const BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.vertical(
-                                      top: Radius.circular(20),
-                                    ),
-                                  ),
-                                  child: Column(
-                                    children: [
-                                      Container(
-                                        margin: const EdgeInsets.only(top: 8),
-                                        width: 40,
-                                        height: 4,
-                                        decoration: BoxDecoration(
-                                          color: Colors.grey[300],
-                                          borderRadius: BorderRadius.circular(
-                                            2,
-                                          ),
-                                        ),
-                                      ),
-                                      Padding(
-                                        padding: const EdgeInsets.all(16),
-                                        child: Row(
-                                          children: [
-                                            Text(
-                                              'Trip QR Code',
-                                              style: Theme.of(
-                                                context,
-                                              ).textTheme.titleLarge,
-                                            ),
-                                            const Spacer(),
-                                            IconButton(
-                                              icon: const Icon(Icons.close),
-                                              onPressed: () {
-                                                setState(() {
-                                                  _showQrOverlay = false;
-                                                });
-                                              },
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const Divider(height: 1),
-                                      Expanded(
-                                        child: SingleChildScrollView(
-                                          padding: const EdgeInsets.all(24),
-                                          child: Column(
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.center,
-                                            children: [
-                                              const Text(
-                                                'Students can scan this QR code',
-                                                style: TextStyle(
-                                                  fontSize: 16,
-                                                  fontWeight: FontWeight.w500,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 24),
-                                              Container(
-                                                padding: const EdgeInsets.all(
-                                                  16,
-                                                ),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.white,
-                                                  borderRadius:
-                                                      BorderRadius.circular(16),
-                                                  boxShadow: [
-                                                    BoxShadow(
-                                                      color: Colors.black
-                                                          .withValues(
-                                                            alpha: 0.1,
-                                                          ),
-                                                      blurRadius: 10,
-                                                      spreadRadius: 2,
-                                                    ),
-                                                  ],
-                                                ),
-                                                child: QrImageView(
-                                                  data: tripId,
-                                                  version: QrVersions.auto,
-                                                  size: 250,
-                                                  backgroundColor: Colors.white,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 24),
-                                              Text(
-                                                'Trip ID: $tripId',
-                                                style: TextStyle(
-                                                  fontSize: 12,
-                                                  color: Colors.grey[600],
-                                                ),
-                                              ),
-                                              const SizedBox(height: 32),
-                                              const Divider(),
-                                              const SizedBox(height: 16),
-                                              SizedBox(
-                                                width: double.infinity,
-                                                height: 50,
-                                                child: ElevatedButton.icon(
-                                                  onPressed: _loadingAction
-                                                      ? null
-                                                      : () {
-                                                          setState(() {
-                                                            _showQrOverlay =
-                                                                false;
-                                                          });
-                                                          _scanStudentQr(
-                                                            tripId: tripId,
-                                                          );
-                                                        },
-                                                  icon: const Icon(
-                                                    Icons.qr_code_scanner,
-                                                    size: 24,
-                                                  ),
-                                                  label: const Text(
-                                                    'Scan Student QR',
-                                                    style: TextStyle(
-                                                      fontSize: 16,
-                                                      fontWeight:
-                                                          FontWeight.w600,
-                                                    ),
-                                                  ),
-                                                  style: ElevatedButton.styleFrom(
-                                                    backgroundColor: Theme.of(
-                                                      context,
-                                                    ).colorScheme.primary,
-                                                    foregroundColor:
-                                                        Colors.white,
-                                                    shape: RoundedRectangleBorder(
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                            12,
-                                                          ),
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-
-                      // Student list overlay (expandable from bottom)
-                      if (_showStudentList && tripId != null)
-                        Positioned(
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          top: MediaQuery.of(context).size.height * 0.25,
-                          child: GestureDetector(
-                            onTap: () {
-                              setState(() {
-                                _showStudentList = false;
-                              });
-                            },
-                            child: Container(
-                              color: Colors.black.withValues(alpha: 0.5),
-                              child: GestureDetector(
-                                onTap: () {},
-                                child: Container(
-                                  margin: const EdgeInsets.only(top: 60),
-                                  decoration: const BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.vertical(
-                                      top: Radius.circular(20),
-                                    ),
-                                  ),
-                                  child: Column(
-                                    children: [
-                                      Container(
-                                        margin: const EdgeInsets.only(top: 8),
-                                        width: 40,
-                                        height: 4,
-                                        decoration: BoxDecoration(
-                                          color: Colors.grey[300],
-                                          borderRadius: BorderRadius.circular(
-                                            2,
-                                          ),
-                                        ),
-                                      ),
-                                      Padding(
-                                        padding: const EdgeInsets.all(16),
-                                        child: Row(
-                                          children: [
-                                            Text(
-                                              'Boarding Status',
-                                              style: Theme.of(
-                                                context,
-                                              ).textTheme.titleLarge,
-                                            ),
-                                            const Spacer(),
-                                            IconButton(
-                                              icon: const Icon(Icons.close),
-                                              onPressed: () {
-                                                setState(() {
-                                                  _showStudentList = false;
-                                                });
-                                              },
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const Divider(height: 1),
-                                      Expanded(
-                                        child: studentById.isEmpty
-                                            ? const Center(
-                                                child: Text(
-                                                  'No students assigned',
-                                                ),
-                                              )
-                                            : ListView.separated(
-                                                padding: const EdgeInsets.all(
-                                                  16,
-                                                ),
-                                                itemCount:
-                                                    orderedStudentIds.length,
-                                                separatorBuilder:
-                                                    (context, index) =>
-                                                        const Divider(
-                                                          height: 20,
-                                                        ),
-                                                itemBuilder: (context, i) {
-                                                  final studentId =
-                                                      orderedStudentIds[i].key;
-                                                  final student =
-                                                      studentById[studentId];
-                                                  final studentName =
-                                                      (student?['student_name'] ??
-                                                              studentId)
-                                                          .toString();
-                                                  final parentPhone =
-                                                      (student?['parent_phone'] ??
-                                                              '')
-                                                          .toString();
-
-                                                  final isAbsentToday =
-                                                      (student?['attendance_override'] ??
-                                                                  '')
-                                                              .toString() ==
-                                                          'absent' &&
-                                                      (student?['attendance_date_ymd'] ??
-                                                                  '')
-                                                              .toString() ==
-                                                          _todayYmd();
-
-                                                  final p = passengers
-                                                      .firstWhere(
-                                                        (x) =>
-                                                            (x['student_id'] ??
-                                                                    '')
-                                                                .toString() ==
-                                                            studentId,
-                                                        orElse: () =>
-                                                            const <
-                                                              String,
-                                                              dynamic
-                                                            >{},
-                                                      );
-                                                  final statusStr =
-                                                      (p['status'] ??
-                                                              'not_boarded')
-                                                          .toString();
-                                                  final statusEnum =
-                                                      BoardingStatusCodec.fromJson(
-                                                        statusStr,
-                                                      );
-
-                                                  final uiStatusEnum =
-                                                      isAbsentToday
-                                                      ? BoardingStatus.absent
-                                                      : statusEnum;
-
-                                                  final arrivedLabel =
-                                                      isAfternoon
-                                                      ? 'Arrived (Home)'
-                                                      : 'Arrived (School)';
-
-                                                  return Container(
-                                                    decoration: BoxDecoration(
-                                                      color: isAbsentToday
-                                                          ? Colors.orange
-                                                                .withValues(
-                                                                  alpha: 0.06,
-                                                                )
-                                                          : Colors.grey[50],
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                            12,
-                                                          ),
-                                                    ),
-                                                    child: ListTile(
-                                                      contentPadding:
-                                                          const EdgeInsets.symmetric(
-                                                            horizontal: 16,
-                                                            vertical: 8,
-                                                          ),
-                                                      leading: Container(
-                                                        width: 48,
-                                                        height: 48,
-                                                        decoration: BoxDecoration(
-                                                          color:
-                                                              uiStatusEnum ==
-                                                                  BoardingStatus
-                                                                      .boarded
-                                                              ? Colors.green
-                                                                    .withValues(
-                                                                      alpha:
-                                                                          0.2,
-                                                                    )
-                                                              : uiStatusEnum ==
-                                                                    BoardingStatus
-                                                                        .alighted
-                                                              ? Colors.blue
-                                                                    .withValues(
-                                                                      alpha:
-                                                                          0.2,
-                                                                    )
-                                                              : uiStatusEnum ==
-                                                                    BoardingStatus
-                                                                        .absent
-                                                              ? Colors.orange
-                                                                    .withValues(
-                                                                      alpha:
-                                                                          0.2,
-                                                                    )
-                                                              : Colors.grey
-                                                                    .withValues(
-                                                                      alpha:
-                                                                          0.2,
-                                                                    ),
-                                                          shape:
-                                                              BoxShape.circle,
-                                                        ),
-                                                        child: Icon(
-                                                          uiStatusEnum ==
-                                                                  BoardingStatus
-                                                                      .boarded
-                                                              ? Icons
-                                                                    .check_circle
-                                                              : uiStatusEnum ==
-                                                                    BoardingStatus
-                                                                        .alighted
-                                                              ? Icons.flag
-                                                              : uiStatusEnum ==
-                                                                    BoardingStatus
-                                                                        .absent
-                                                              ? Icons
-                                                                    .remove_circle
-                                                              : Icons
-                                                                    .radio_button_unchecked,
-                                                          color:
-                                                              uiStatusEnum ==
-                                                                  BoardingStatus
-                                                                      .boarded
-                                                              ? Colors.green
-                                                              : uiStatusEnum ==
-                                                                    BoardingStatus
-                                                                        .alighted
-                                                              ? Colors.blue
-                                                              : uiStatusEnum ==
-                                                                    BoardingStatus
-                                                                        .absent
-                                                              ? Colors.orange
-                                                              : Colors.grey,
-                                                          size: 28,
+                                            const SizedBox(height: 8),
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: SizedBox(
+                                                    height: 44,
+                                                    child: OutlinedButton(
+                                                      onPressed:
+                                                          (_loadingAction ||
+                                                              nextDest == null)
+                                                          ? null
+                                                          : () =>
+                                                                _focusNextStop(
+                                                                  nextDest,
+                                                                ),
+                                                      style: OutlinedButton.styleFrom(
+                                                        shape: RoundedRectangleBorder(
+                                                          borderRadius:
+                                                              BorderRadius.circular(
+                                                                12,
+                                                              ),
                                                         ),
                                                       ),
-                                                      title: Text(
-                                                        studentName,
-                                                        style: const TextStyle(
-                                                          fontWeight:
-                                                              FontWeight.w600,
-                                                        ),
-                                                        maxLines: 2,
-                                                        overflow: TextOverflow
-                                                            .ellipsis,
-                                                      ),
-                                                      subtitle: Text(
-                                                        isAbsentToday
-                                                            ? 'Status: $statusStr • ABSENT TODAY'
-                                                            : 'Status: $statusStr',
-                                                        maxLines: 1,
-                                                        overflow: TextOverflow
-                                                            .ellipsis,
-                                                      ),
-                                                      trailing: Row(
-                                                        mainAxisSize:
-                                                            MainAxisSize.min,
+                                                      child: const Row(
+                                                        mainAxisAlignment:
+                                                            MainAxisAlignment
+                                                                .center,
                                                         children: [
-                                                          if (parentPhone
-                                                              .isNotEmpty)
-                                                            IconButton(
-                                                              icon: const Icon(
-                                                                Icons.phone,
-                                                              ),
-                                                              color:
-                                                                  Colors.green,
-                                                              onPressed: () =>
-                                                                  _launchCall(
-                                                                    parentPhone,
-                                                                  ),
+                                                          Icon(
+                                                            Icons.navigation,
+                                                            size: 18,
+                                                          ),
+                                                          SizedBox(width: 8),
+                                                          Text(
+                                                            'Navigate to Next',
+                                                            style: TextStyle(
+                                                              fontSize: 13,
                                                             ),
-                                                          PopupMenuButton<
-                                                            String
-                                                          >(
-                                                            onSelected: (v) async {
-                                                              final next =
-                                                                  BoardingStatusCodec.fromJson(
-                                                                    v,
-                                                                  );
-                                                              await _tripService
-                                                                  .updatePassengerStatus(
-                                                                    tripId,
-                                                                    studentId,
-                                                                    next,
-                                                                  );
-
-                                                              try {
-                                                                final studentSnap = await FirebaseFirestore
-                                                                    .instance
-                                                                    .collection(
-                                                                      'drivers',
-                                                                    )
-                                                                    .doc(
-                                                                      widget
-                                                                          .driverId,
-                                                                    )
-                                                                    .collection(
-                                                                      'students',
-                                                                    )
-                                                                    .doc(
-                                                                      studentId,
-                                                                    )
-                                                                    .get();
-                                                                final parentId =
-                                                                    (studentSnap.data()?['parent_id'] ??
-                                                                            '')
-                                                                        .toString();
-                                                                final studentName =
-                                                                    (studentSnap.data()?['student_name'] ??
-                                                                            studentId)
-                                                                        .toString();
-                                                                if (parentId
-                                                                    .isNotEmpty) {
-                                                                  final label = switch (next) {
-                                                                    BoardingStatus
-                                                                        .notBoarded =>
-                                                                      'Not Boarded',
-                                                                    BoardingStatus
-                                                                        .boarded =>
-                                                                      'Boarded',
-                                                                    BoardingStatus
-                                                                        .alighted =>
-                                                                      'Arrived',
-                                                                    BoardingStatus
-                                                                        .absent =>
-                                                                      'Absent',
-                                                                  };
-                                                                  await _notifications.createUnique(
-                                                                    notificationId:
-                                                                        'boarding_${tripId}_${studentId}_${BoardingStatusCodec.toJson(next)}',
-                                                                    userId:
-                                                                        parentId,
-                                                                    type:
-                                                                        'boarding',
-                                                                    message:
-                                                                        '$studentName: $label',
-                                                                  );
-                                                                }
-                                                              } catch (_) {}
-                                                            },
-                                                            icon: const Icon(
-                                                              Icons.more_vert,
-                                                            ),
-                                                            itemBuilder: (_) => [
-                                                              const PopupMenuItem(
-                                                                value:
-                                                                    'not_boarded',
-                                                                child: Text(
-                                                                  'Not Boarded',
-                                                                ),
-                                                              ),
-                                                              const PopupMenuItem(
-                                                                value:
-                                                                    'boarded',
-                                                                child: Text(
-                                                                  'Boarded',
-                                                                ),
-                                                              ),
-                                                              PopupMenuItem(
-                                                                value:
-                                                                    'alighted',
-                                                                child: Text(
-                                                                  arrivedLabel,
-                                                                ),
-                                                              ),
-                                                              const PopupMenuItem(
-                                                                value: 'absent',
-                                                                child: Text(
-                                                                  'Absent',
-                                                                ),
-                                                              ),
-                                                            ],
                                                           ),
                                                         ],
                                                       ),
                                                     ),
-                                                  );
+                                                  ),
+                                                ),
+                                                if (canArriveAtSchool) ...[
+                                                  const SizedBox(width: 8),
+                                                  SizedBox(
+                                                    height: 44,
+                                                    child: ElevatedButton(
+                                                      onPressed: _loadingAction
+                                                          ? null
+                                                          : () async {
+                                                              setState(() {
+                                                                _loadingAction =
+                                                                    true;
+                                                                _error = null;
+                                                              });
+                                                              try {
+                                                                await _tripService
+                                                                    .markAllArrivedAtSchool(
+                                                                      tripId,
+                                                                    );
+                                                              } catch (e) {
+                                                                setState(() {
+                                                                  _error =
+                                                                      'Failed to mark arrived: $e';
+                                                                });
+                                                              } finally {
+                                                                if (mounted) {
+                                                                  setState(() {
+                                                                    _loadingAction =
+                                                                        false;
+                                                                  });
+                                                                }
+                                                              }
+                                                            },
+                                                      style: ElevatedButton.styleFrom(
+                                                        shape: RoundedRectangleBorder(
+                                                          borderRadius:
+                                                              BorderRadius.circular(
+                                                                12,
+                                                              ),
+                                                        ),
+                                                      ),
+                                                      child: const Text(
+                                                        'Arrived',
+                                                        style: TextStyle(
+                                                          fontSize: 13,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                            const SizedBox(height: 8),
+                                            SizedBox(
+                                              width: double.infinity,
+                                              height: 44,
+                                              child: OutlinedButton(
+                                                onPressed: () {
+                                                  setState(() {
+                                                    _showStudentList =
+                                                        !_showStudentList;
+                                                  });
                                                 },
+                                                style: OutlinedButton.styleFrom(
+                                                  shape: RoundedRectangleBorder(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          12,
+                                                        ),
+                                                  ),
+                                                ),
+                                                child: Row(
+                                                  mainAxisAlignment:
+                                                      MainAxisAlignment.center,
+                                                  children: [
+                                                    const Icon(
+                                                      Icons.people,
+                                                      size: 18,
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    Text(
+                                                      'Student List (${studentById.length})',
+                                                      style: const TextStyle(
+                                                        fontSize: 13,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    Icon(
+                                                      _showStudentList
+                                                          ? Icons
+                                                                .keyboard_arrow_down
+                                                          : Icons
+                                                                .keyboard_arrow_up,
+                                                      size: 18,
+                                                    ),
+                                                  ],
+                                                ),
                                               ),
+                                            ),
+                                          ],
+                                        ],
                                       ),
-                                    ],
-                                  ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
                           ),
-                        ),
-                    ],
-                  ),
+
+                          // QR overlay
+                          if (_showQrOverlay && tripId != null)
+                            Positioned(
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              top: MediaQuery.of(context).size.height * 0.25,
+                              child: GestureDetector(
+                                onTap: () {
+                                  setState(() {
+                                    _showQrOverlay = false;
+                                  });
+                                },
+                                child: Container(
+                                  color: Colors.black.withValues(alpha: 0.5),
+                                  child: GestureDetector(
+                                    onTap: () {},
+                                    child: Container(
+                                      margin: const EdgeInsets.only(top: 60),
+                                      decoration: const BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.vertical(
+                                          top: Radius.circular(20),
+                                        ),
+                                      ),
+                                      child: Column(
+                                        children: [
+                                          Container(
+                                            margin: const EdgeInsets.only(
+                                              top: 8,
+                                            ),
+                                            width: 40,
+                                            height: 4,
+                                            decoration: BoxDecoration(
+                                              color: Colors.grey[300],
+                                              borderRadius:
+                                                  BorderRadius.circular(2),
+                                            ),
+                                          ),
+                                          Padding(
+                                            padding: const EdgeInsets.all(16),
+                                            child: Row(
+                                              children: [
+                                                Text(
+                                                  'Trip QR Code',
+                                                  style: Theme.of(
+                                                    context,
+                                                  ).textTheme.titleLarge,
+                                                ),
+                                                const Spacer(),
+                                                IconButton(
+                                                  icon: const Icon(Icons.close),
+                                                  onPressed: () {
+                                                    setState(() {
+                                                      _showQrOverlay = false;
+                                                    });
+                                                  },
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          const Divider(height: 1),
+                                          Expanded(
+                                            child: SingleChildScrollView(
+                                              padding: const EdgeInsets.all(24),
+                                              child: Column(
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment.center,
+                                                children: [
+                                                  const Text(
+                                                    'Students can scan this QR code',
+                                                    style: TextStyle(
+                                                      fontSize: 16,
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 24),
+                                                  Container(
+                                                    padding:
+                                                        const EdgeInsets.all(
+                                                          16,
+                                                        ),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.white,
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            16,
+                                                          ),
+                                                      boxShadow: [
+                                                        BoxShadow(
+                                                          color: Colors.black
+                                                              .withValues(
+                                                                alpha: 0.1,
+                                                              ),
+                                                          blurRadius: 10,
+                                                          spreadRadius: 2,
+                                                        ),
+                                                      ],
+                                                    ),
+                                                    child: QrImageView(
+                                                      data: tripId,
+                                                      version: QrVersions.auto,
+                                                      size: 250,
+                                                      backgroundColor:
+                                                          Colors.white,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 24),
+                                                  Text(
+                                                    'Trip ID: $tripId',
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      color: Colors.grey[600],
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 32),
+                                                  const Divider(),
+                                                  const SizedBox(height: 16),
+                                                  SizedBox(
+                                                    width: double.infinity,
+                                                    height: 50,
+                                                    child: ElevatedButton.icon(
+                                                      onPressed: _loadingAction
+                                                          ? null
+                                                          : () {
+                                                              setState(() {
+                                                                _showQrOverlay =
+                                                                    false;
+                                                              });
+                                                              _scanStudentQr(
+                                                                tripId: tripId,
+                                                              );
+                                                            },
+                                                      icon: const Icon(
+                                                        Icons.qr_code_scanner,
+                                                        size: 24,
+                                                      ),
+                                                      label: const Text(
+                                                        'Scan Student QR',
+                                                        style: TextStyle(
+                                                          fontSize: 16,
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                        ),
+                                                      ),
+                                                      style: ElevatedButton.styleFrom(
+                                                        backgroundColor:
+                                                            Theme.of(context)
+                                                                .colorScheme
+                                                                .primary,
+                                                        foregroundColor:
+                                                            Colors.white,
+                                                        shape: RoundedRectangleBorder(
+                                                          borderRadius:
+                                                              BorderRadius.circular(
+                                                                12,
+                                                              ),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+
+                          // Student list overlay (expandable from bottom)
+                          if (_showStudentList && tripId != null)
+                            Positioned(
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              top: MediaQuery.of(context).size.height * 0.25,
+                              child: GestureDetector(
+                                onTap: () {
+                                  setState(() {
+                                    _showStudentList = false;
+                                  });
+                                },
+                                child: Container(
+                                  color: Colors.black.withValues(alpha: 0.5),
+                                  child: GestureDetector(
+                                    onTap: () {},
+                                    child: Container(
+                                      margin: const EdgeInsets.only(top: 60),
+                                      decoration: const BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.vertical(
+                                          top: Radius.circular(20),
+                                        ),
+                                      ),
+                                      child: Column(
+                                        children: [
+                                          Container(
+                                            margin: const EdgeInsets.only(
+                                              top: 8,
+                                            ),
+                                            width: 40,
+                                            height: 4,
+                                            decoration: BoxDecoration(
+                                              color: Colors.grey[300],
+                                              borderRadius:
+                                                  BorderRadius.circular(2),
+                                            ),
+                                          ),
+                                          Padding(
+                                            padding: const EdgeInsets.all(16),
+                                            child: Row(
+                                              children: [
+                                                Text(
+                                                  'Boarding Status',
+                                                  style: Theme.of(
+                                                    context,
+                                                  ).textTheme.titleLarge,
+                                                ),
+                                                const Spacer(),
+                                                IconButton(
+                                                  icon: const Icon(Icons.close),
+                                                  onPressed: () {
+                                                    setState(() {
+                                                      _showStudentList = false;
+                                                    });
+                                                  },
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          const Divider(height: 1),
+                                          Expanded(
+                                            child: studentById.isEmpty
+                                                ? const Center(
+                                                    child: Text(
+                                                      'No students assigned',
+                                                    ),
+                                                  )
+                                                : ListView.separated(
+                                                    padding:
+                                                        const EdgeInsets.all(
+                                                          16,
+                                                        ),
+                                                    itemCount: orderedStudentIds
+                                                        .length,
+                                                    separatorBuilder:
+                                                        (context, index) =>
+                                                            const Divider(
+                                                              height: 20,
+                                                            ),
+                                                    itemBuilder: (context, i) {
+                                                      final studentId =
+                                                          orderedStudentIds[i]
+                                                              .key;
+                                                      final student =
+                                                          studentById[studentId];
+                                                      final studentName =
+                                                          (student?['student_name'] ??
+                                                                  studentId)
+                                                              .toString();
+                                                      final parentPhone =
+                                                          (student?['parent_phone'] ??
+                                                                  '')
+                                                              .toString();
+
+                                                      final isAbsentToday =
+                                                          (student?['attendance_override'] ??
+                                                                      '')
+                                                                  .toString() ==
+                                                              'absent' &&
+                                                          (student?['attendance_date_ymd'] ??
+                                                                      '')
+                                                                  .toString() ==
+                                                              _todayYmd();
+
+                                                      final p = passengers
+                                                          .firstWhere(
+                                                            (x) =>
+                                                                (x['student_id'] ??
+                                                                        '')
+                                                                    .toString() ==
+                                                                studentId,
+                                                            orElse: () =>
+                                                                const <
+                                                                  String,
+                                                                  dynamic
+                                                                >{},
+                                                          );
+                                                      final statusStr =
+                                                          (p['status'] ??
+                                                                  'not_boarded')
+                                                              .toString();
+                                                      final statusEnum =
+                                                          BoardingStatusCodec.fromJson(
+                                                            statusStr,
+                                                          );
+
+                                                      final uiStatusEnum =
+                                                          isAbsentToday
+                                                          ? BoardingStatus
+                                                                .absent
+                                                          : statusEnum;
+
+                                                      final arrivedLabel =
+                                                          isAfternoon
+                                                          ? 'Arrived (Home)'
+                                                          : 'Arrived (School)';
+
+                                                      return Container(
+                                                        decoration: BoxDecoration(
+                                                          color: isAbsentToday
+                                                              ? Colors.orange
+                                                                    .withValues(
+                                                                      alpha:
+                                                                          0.06,
+                                                                    )
+                                                              : Colors.grey[50],
+                                                          borderRadius:
+                                                              BorderRadius.circular(
+                                                                12,
+                                                              ),
+                                                        ),
+                                                        child: ListTile(
+                                                          contentPadding:
+                                                              const EdgeInsets.symmetric(
+                                                                horizontal: 16,
+                                                                vertical: 8,
+                                                              ),
+                                                          leading: Container(
+                                                            width: 48,
+                                                            height: 48,
+                                                            decoration: BoxDecoration(
+                                                              color:
+                                                                  uiStatusEnum ==
+                                                                      BoardingStatus
+                                                                          .boarded
+                                                                  ? Colors.green
+                                                                        .withValues(
+                                                                          alpha:
+                                                                              0.2,
+                                                                        )
+                                                                  : uiStatusEnum ==
+                                                                        BoardingStatus
+                                                                            .alighted
+                                                                  ? Colors.blue
+                                                                        .withValues(
+                                                                          alpha:
+                                                                              0.2,
+                                                                        )
+                                                                  : uiStatusEnum ==
+                                                                        BoardingStatus
+                                                                            .absent
+                                                                  ? Colors
+                                                                        .orange
+                                                                        .withValues(
+                                                                          alpha:
+                                                                              0.2,
+                                                                        )
+                                                                  : Colors.grey
+                                                                        .withValues(
+                                                                          alpha:
+                                                                              0.2,
+                                                                        ),
+                                                              shape: BoxShape
+                                                                  .circle,
+                                                            ),
+                                                            child: Icon(
+                                                              uiStatusEnum ==
+                                                                      BoardingStatus
+                                                                          .boarded
+                                                                  ? Icons
+                                                                        .check_circle
+                                                                  : uiStatusEnum ==
+                                                                        BoardingStatus
+                                                                            .alighted
+                                                                  ? Icons.flag
+                                                                  : uiStatusEnum ==
+                                                                        BoardingStatus
+                                                                            .absent
+                                                                  ? Icons
+                                                                        .remove_circle
+                                                                  : Icons
+                                                                        .radio_button_unchecked,
+                                                              color:
+                                                                  uiStatusEnum ==
+                                                                      BoardingStatus
+                                                                          .boarded
+                                                                  ? Colors.green
+                                                                  : uiStatusEnum ==
+                                                                        BoardingStatus
+                                                                            .alighted
+                                                                  ? Colors.blue
+                                                                  : uiStatusEnum ==
+                                                                        BoardingStatus
+                                                                            .absent
+                                                                  ? Colors
+                                                                        .orange
+                                                                  : Colors.grey,
+                                                              size: 28,
+                                                            ),
+                                                          ),
+                                                          title: Text(
+                                                            studentName,
+                                                            style:
+                                                                const TextStyle(
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .w600,
+                                                                ),
+                                                            maxLines: 2,
+                                                            overflow:
+                                                                TextOverflow
+                                                                    .ellipsis,
+                                                          ),
+                                                          subtitle: Text(
+                                                            isAbsentToday
+                                                                ? 'Status: $statusStr • ABSENT TODAY'
+                                                                : 'Status: $statusStr',
+                                                            maxLines: 1,
+                                                            overflow:
+                                                                TextOverflow
+                                                                    .ellipsis,
+                                                          ),
+                                                          trailing: Row(
+                                                            mainAxisSize:
+                                                                MainAxisSize
+                                                                    .min,
+                                                            children: [
+                                                              if (parentPhone
+                                                                  .isNotEmpty)
+                                                                IconButton(
+                                                                  icon: const Icon(
+                                                                    Icons.phone,
+                                                                  ),
+                                                                  color: Colors
+                                                                      .green,
+                                                                  onPressed: () =>
+                                                                      _launchCall(
+                                                                        parentPhone,
+                                                                      ),
+                                                                ),
+                                                              PopupMenuButton<
+                                                                String
+                                                              >(
+                                                                onSelected: (v) async {
+                                                                  final next =
+                                                                      BoardingStatusCodec.fromJson(
+                                                                        v,
+                                                                      );
+                                                                  await _tripService
+                                                                      .updatePassengerStatus(
+                                                                        tripId,
+                                                                        studentId,
+                                                                        next,
+                                                                      );
+
+                                                                  try {
+                                                                    final studentSnap = await FirebaseFirestore
+                                                                        .instance
+                                                                        .collection(
+                                                                          'drivers',
+                                                                        )
+                                                                        .doc(
+                                                                          widget
+                                                                              .driverId,
+                                                                        )
+                                                                        .collection(
+                                                                          'students',
+                                                                        )
+                                                                        .doc(
+                                                                          studentId,
+                                                                        )
+                                                                        .get();
+                                                                    final parentId =
+                                                                        (studentSnap.data()?['parent_id'] ??
+                                                                                '')
+                                                                            .toString();
+                                                                    final studentName =
+                                                                        (studentSnap.data()?['student_name'] ??
+                                                                                studentId)
+                                                                            .toString();
+                                                                    if (parentId
+                                                                        .isNotEmpty) {
+                                                                      final label = switch (next) {
+                                                                        BoardingStatus
+                                                                            .notBoarded =>
+                                                                          'Not Boarded',
+                                                                        BoardingStatus
+                                                                            .boarded =>
+                                                                          'Boarded',
+                                                                        BoardingStatus
+                                                                            .alighted =>
+                                                                          'Arrived',
+                                                                        BoardingStatus
+                                                                            .absent =>
+                                                                          'Absent',
+                                                                      };
+                                                                      await _notifications.createUnique(
+                                                                        notificationId:
+                                                                            'boarding_${tripId}_${studentId}_${BoardingStatusCodec.toJson(next)}',
+                                                                        userId:
+                                                                            parentId,
+                                                                        type:
+                                                                            'boarding',
+                                                                        message:
+                                                                            '$studentName: $label',
+                                                                      );
+                                                                    }
+                                                                  } catch (_) {}
+                                                                },
+                                                                icon: const Icon(
+                                                                  Icons
+                                                                      .more_vert,
+                                                                ),
+                                                                itemBuilder: (_) => [
+                                                                  const PopupMenuItem(
+                                                                    value:
+                                                                        'not_boarded',
+                                                                    child: Text(
+                                                                      'Not Boarded',
+                                                                    ),
+                                                                  ),
+                                                                  const PopupMenuItem(
+                                                                    value:
+                                                                        'boarded',
+                                                                    child: Text(
+                                                                      'Boarded',
+                                                                    ),
+                                                                  ),
+                                                                  PopupMenuItem(
+                                                                    value:
+                                                                        'alighted',
+                                                                    child: Text(
+                                                                      arrivedLabel,
+                                                                    ),
+                                                                  ),
+                                                                  const PopupMenuItem(
+                                                                    value:
+                                                                        'absent',
+                                                                    child: Text(
+                                                                      'Absent',
+                                                                    ),
+                                                                  ),
+                                                                ],
+                                                              ),
+                                                            ],
+                                                          ),
+                                                        ),
+                                                      );
+                                                    },
+                                                  ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    );
+                  },
                 );
               },
             );

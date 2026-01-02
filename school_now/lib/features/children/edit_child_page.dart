@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -52,24 +54,58 @@ class _EditChildPageState extends State<EditChildPage> {
   }
 
   Future<void> _loadSchools() async {
-    try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('schools')
-          .orderBy('name')
-          .get();
+    int attempts = 0;
+    const maxAttempts = 5;
+    while (attempts < maxAttempts) {
+      attempts++;
+      try {
+        // Use timeout to prevent indefinite hangs
+        final snapshot = await FirebaseFirestore.instance
+            .collection('schools')
+            .get()
+            .timeout(
+              const Duration(seconds: 10),
+              onTimeout: () => throw TimeoutException('Schools fetch timeout'),
+            );
 
-      if (mounted) {
-        setState(() {
-          _schools = snapshot.docs;
-          _loadingSchools = false;
+        final docs = List<QueryDocumentSnapshot>.from(snapshot.docs);
+        docs.sort((a, b) {
+          final an = (a.data() as Map<String, dynamic>)['name'] ?? '';
+          final bn = (b.data() as Map<String, dynamic>)['name'] ?? '';
+          return an.toString().toLowerCase().compareTo(
+            bn.toString().toLowerCase(),
+          );
         });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _loadingSchools = false;
-          _error = 'Failed to load schools: $e';
-        });
+
+        if (mounted) {
+          setState(() {
+            _schools = docs;
+            _loadingSchools = false;
+          });
+        }
+        return;
+      } catch (e) {
+        final text = e.toString();
+        final isFirestoreAssertion =
+            text.contains('INTERNAL ASSERTION FAILED') ||
+            text.contains('Unexpected state') ||
+            text.contains('assertion failed');
+        final isTimeout = e is TimeoutException;
+
+        if ((isFirestoreAssertion || isTimeout) && attempts < maxAttempts) {
+          // Exponential backoff: 800ms, 1600ms, 3200ms, 6400ms
+          final delayMs = 800 * (1 << (attempts - 1));
+          await Future.delayed(Duration(milliseconds: delayMs));
+          continue;
+        }
+
+        if (mounted) {
+          setState(() {
+            _loadingSchools = false;
+            _error = 'Failed to load schools. Please try again.';
+          });
+        }
+        return;
       }
     }
   }

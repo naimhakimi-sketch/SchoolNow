@@ -12,9 +12,22 @@ class DriverLocationService {
     _driverId = driverId;
 
     // Request permission
-    LocationPermission permission = await Geolocator.checkPermission();
+    LocationPermission permission = LocationPermission.denied;
+    try {
+      permission = await Geolocator.checkPermission().timeout(
+        const Duration(seconds: 5),
+      );
+    } catch (_) {
+      permission = LocationPermission.denied;
+    }
     if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
+      try {
+        permission = await Geolocator.requestPermission().timeout(
+          const Duration(seconds: 8),
+        );
+      } catch (_) {
+        permission = LocationPermission.denied;
+      }
     }
 
     if (permission == LocationPermission.deniedForever ||
@@ -28,12 +41,16 @@ class DriverLocationService {
       distanceFilter: 10, // Update every 10 meters
     );
 
-    _locationSubscription =
-        Geolocator.getPositionStream(locationSettings: locationSettings).listen(
-          (Position position) {
+    try {
+      _locationSubscription =
+          Geolocator.getPositionStream(
+            locationSettings: locationSettings,
+          ).listen((Position position) {
             _updateLocation(position);
-          },
-        );
+          });
+    } catch (_) {
+      // If starting the stream fails, don't crash — caller will see tracking not active.
+    }
   }
 
   // Update location in Realtime Database

@@ -41,6 +41,18 @@ class MonitorPage extends StatefulWidget {
       BoardingStatus.absent => 'Absent',
     };
   }
+
+  static LatLng? _pickupFromParent(Map<String, dynamic>? parent) {
+    if (parent == null) return null;
+    final lat = (parent['pickup_lat'] as num?)?.toDouble();
+    final lng = (parent['pickup_lng'] as num?)?.toDouble();
+    if (lat != null && lng != null) {
+      return LatLng(lat, lng);
+    }
+    return MonitorPage._latLngFromMap(
+      (parent['pickup_location'] as Map?)?.cast<String, dynamic>(),
+    );
+  }
 }
 
 class _MonitorPageState extends State<MonitorPage> {
@@ -57,6 +69,30 @@ class _MonitorPageState extends State<MonitorPage> {
   bool _autoCenteredOnDriver = false;
 
   String? _proximityNotifiedTripId;
+
+  String _pointKey(LatLng point) =>
+      '${point.latitude.toStringAsFixed(6)},${point.longitude.toStringAsFixed(6)}';
+
+  List<Marker> _buildRouteStopMarkers(
+    List<LatLng> stopPoints,
+    Set<String> seenKeys,
+  ) {
+    final markers = <Marker>[];
+    for (var i = 1; i < stopPoints.length; i++) {
+      final point = stopPoints[i];
+      final key = _pointKey(point);
+      if (!seenKeys.add(key)) continue;
+      markers.add(
+        Marker(
+          point: point,
+          width: 32,
+          height: 32,
+          child: const Icon(Icons.location_on, color: Colors.red, size: 28),
+        ),
+      );
+    }
+    return markers;
+  }
 
   Widget _buildOverlayPanels({
     required bool attending,
@@ -323,6 +359,7 @@ class _MonitorPageState extends State<MonitorPage> {
     required LatLng? driverPoint,
     required List<LatLng> polylinePoints,
     required String heroTag,
+    LatLng? parentLocation,
   }) {
     return Stack(
       children: [
@@ -358,7 +395,13 @@ class _MonitorPageState extends State<MonitorPage> {
           bottom: 10,
           child: FloatingActionButton.small(
             heroTag: heroTag,
-            onPressed: _centerOnParentHome,
+            onPressed: () {
+              if (parentLocation != null) {
+                _mapController.move(parentLocation, 16);
+              } else {
+                _centerOnParentHome();
+              }
+            },
             child: const Icon(Icons.home),
           ),
         ),
@@ -385,6 +428,7 @@ class _MonitorPageState extends State<MonitorPage> {
       stream: _parentService.streamParent(widget.parentId),
       builder: (context, parentSnap) {
         final parent = parentSnap.data?.data() ?? const <String, dynamic>{};
+        final parentPickupLocation = MonitorPage._pickupFromParent(parent);
         final notifications =
             (parent['notifications'] as Map?)?.cast<String, dynamic>() ??
             const <String, dynamic>{};
@@ -474,6 +518,7 @@ class _MonitorPageState extends State<MonitorPage> {
                                     ),
                                   ),
                               ],
+                              parentLocation: parentPickupLocation,
                             ),
                           ),
                           Align(
@@ -672,6 +717,30 @@ class _MonitorPageState extends State<MonitorPage> {
                                           ? routed
                                           : stopPoints;
 
+                                      final usedKeys = <String>{};
+                                      final routeMarkers =
+                                          _buildRouteStopMarkers(
+                                            stopPoints,
+                                            usedKeys,
+                                          );
+                                      if (parentPickupLocation != null &&
+                                          usedKeys.add(
+                                            _pointKey(parentPickupLocation),
+                                          )) {
+                                        routeMarkers.add(
+                                          Marker(
+                                            point: parentPickupLocation,
+                                            width: 36,
+                                            height: 36,
+                                            child: const Icon(
+                                              Icons.home,
+                                              color: Colors.blue,
+                                              size: 30,
+                                            ),
+                                          ),
+                                        );
+                                      }
+
                                       return Stack(
                                         children: [
                                           Positioned.fill(
@@ -686,6 +755,7 @@ class _MonitorPageState extends State<MonitorPage> {
                                               driverPoint: fallbackDriverPoint,
                                               polylinePoints: polylinePoints,
                                               markers: [
+                                                ...routeMarkers,
                                                 if (pickup != null)
                                                   Marker(
                                                     point: pickup,
@@ -709,6 +779,8 @@ class _MonitorPageState extends State<MonitorPage> {
                                                     ),
                                                   ),
                                               ],
+                                              parentLocation:
+                                                  parentPickupLocation,
                                             ),
                                           ),
                                           Align(
@@ -802,6 +874,29 @@ class _MonitorPageState extends State<MonitorPage> {
                                     ? routed
                                     : stopPoints;
 
+                                final usedKeys = <String>{};
+                                final routeMarkers = _buildRouteStopMarkers(
+                                  stopPoints,
+                                  usedKeys,
+                                );
+                                if (parentPickupLocation != null &&
+                                    usedKeys.add(
+                                      _pointKey(parentPickupLocation),
+                                    )) {
+                                  routeMarkers.add(
+                                    Marker(
+                                      point: parentPickupLocation,
+                                      width: 36,
+                                      height: 36,
+                                      child: const Icon(
+                                        Icons.home,
+                                        color: Colors.blue,
+                                        size: 30,
+                                      ),
+                                    ),
+                                  );
+                                }
+
                                 return Stack(
                                   children: [
                                     Positioned.fill(
@@ -812,6 +907,7 @@ class _MonitorPageState extends State<MonitorPage> {
                                         driverPoint: dp,
                                         polylinePoints: polylinePoints,
                                         markers: [
+                                          ...routeMarkers,
                                           if (pickup != null)
                                             Marker(
                                               point: pickup,
@@ -834,6 +930,7 @@ class _MonitorPageState extends State<MonitorPage> {
                                             ),
                                           ),
                                         ],
+                                        parentLocation: parentPickupLocation,
                                       ),
                                     ),
                                     Align(
