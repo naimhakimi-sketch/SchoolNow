@@ -29,8 +29,11 @@ class SchoolNowApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: 'SchoolNow',
-      theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue)),
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+      ),
       home: const _UpdateOnStart(appKey: 'school_now', child: AuthGate()),
     );
   }
@@ -42,7 +45,7 @@ class _UpdateOnStart extends StatefulWidget {
   final String appKey;
   final Widget child;
 
-    static const String manifestUrl =
+  static const String manifestUrl =
       'https://busnow-applications.web.app/updates/manifest.json';
 
   @override
@@ -97,8 +100,8 @@ class _UpdateOnStartState extends State<_UpdateOnStart> {
                         : () async {
                             setState(() => downloading = true);
                             try {
-                              final allowed =
-                                  await updater.canInstallUnknownApps();
+                              final allowed = await updater
+                                  .canInstallUnknownApps();
                               if (!allowed) {
                                 await updater.openInstallUnknownAppsSettings();
                                 return;
@@ -115,7 +118,8 @@ class _UpdateOnStartState extends State<_UpdateOnStart> {
                                   content: Text(e.toString()),
                                   actions: <Widget>[
                                     TextButton(
-                                      onPressed: () => Navigator.of(dialogContext).pop(),
+                                      onPressed: () =>
+                                          Navigator.of(dialogContext).pop(),
                                       child: const Text('OK'),
                                     ),
                                   ],
