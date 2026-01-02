@@ -29,7 +29,8 @@ class _DriversPageState extends State<DriversPage> {
   String? _error;
 
   LatLng? _pickupFromChild() {
-    final m = (widget.childDoc.data()['pickup_location'] as Map?)?.cast<String, dynamic>();
+    final m = (widget.childDoc.data()['pickup_location'] as Map?)
+        ?.cast<String, dynamic>();
     if (m == null) return null;
     final lat = (m['lat'] as num?)?.toDouble();
     final lng = (m['lng'] as num?)?.toDouble();
@@ -59,9 +60,13 @@ class _DriversPageState extends State<DriversPage> {
     });
 
     try {
-      final parentSnap = await FirebaseFirestore.instance.collection('parents').doc(widget.parentId).get();
+      final parentSnap = await FirebaseFirestore.instance
+          .collection('parents')
+          .doc(widget.parentId)
+          .get();
       final parentData = parentSnap.data() ?? const <String, dynamic>{};
-      final parentName = (parentData['name'] ?? parentUser.displayName ?? 'Parent').toString();
+      final parentName =
+          (parentData['name'] ?? parentUser.displayName ?? 'Parent').toString();
       final parentPhone = (parentData['contact_number'] ?? '').toString();
 
       if (!mounted) return;
@@ -101,14 +106,18 @@ class _DriversPageState extends State<DriversPage> {
           'parent_phone': parentPhone,
           'student_id': widget.childDoc.id,
           'student_name': (child['child_name'] ?? 'Student').toString(),
-          'pickup_location': pickup == null ? null : {'lat': pickup.latitude, 'lng': pickup.longitude},
+          'pickup_location': pickup == null
+              ? null
+              : {'lat': pickup.latitude, 'lng': pickup.longitude},
           'payment_id': paymentId,
           'amount': amount,
         },
       );
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Request sent (Pending approval)')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Request sent (Pending approval)')),
+      );
     } catch (e) {
       setState(() {
         _error = 'Failed to request: $e';
@@ -140,14 +149,16 @@ class _DriversPageState extends State<DriversPage> {
 
         final docs = snap.data?.docs ?? const [];
         final visible = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+        final childSchoolId = (widget.childDoc.data()['school_id'] as String?);
         for (final d in docs) {
           final data = d.data();
           if (data['is_verified'] != true) continue;
-          if (pickup == null) {
-            visible.add(d);
-            continue;
-          }
-          if (_discovery.isDriverEligibleForPickup(driverData: data, pickup: pickup)) {
+
+          if (_discovery.isDriverEligibleForPickup(
+            driverData: data,
+            pickup: pickup,
+            childSchoolId: childSchoolId,
+          )) {
             visible.add(d);
           }
         }
@@ -158,19 +169,27 @@ class _DriversPageState extends State<DriversPage> {
             if (assignedDriver.isNotEmpty)
               Container(
                 padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(8)),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
                 child: Text('Assigned driver: $assignedDriver'),
               ),
             if (_error != null)
               Padding(
                 padding: const EdgeInsets.only(top: 8),
-                child: Text(_error!, style: TextStyle(color: Colors.red.shade700)),
+                child: Text(
+                  _error!,
+                  style: TextStyle(color: Colors.red.shade700),
+                ),
               ),
             const SizedBox(height: 12),
-            Text('Available drivers', style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              'Available drivers',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 8),
-            if (visible.isEmpty)
-              const Text('No drivers found for this child.'),
+            if (visible.isEmpty) const Text('No drivers found for this child.'),
             for (final d in visible) ...[
               const SizedBox(height: 10),
               Card(
@@ -179,17 +198,33 @@ class _DriversPageState extends State<DriversPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text((d.data()['name'] ?? 'Driver').toString(), style: const TextStyle(fontWeight: FontWeight.bold)),
+                      Text(
+                        (d.data()['name'] ?? 'Driver').toString(),
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
                       const SizedBox(height: 6),
-                      Text('Contact: ${(d.data()["contact_number"] ?? "").toString()}'),
-                      Text('Vehicle: ${(d.data()["transport_number"] ?? "").toString()}'),
-                      Text('Monthly fee: ${(d.data()["monthly_fee"] ?? "N/A").toString()}'),
+                      Text(
+                        'Contact: ${(d.data()["contact_number"] ?? "").toString()}',
+                      ),
+                      Text(
+                        'Vehicle: ${(d.data()["transport_number"] ?? "").toString()}',
+                      ),
+                      Text(
+                        'Monthly fee: ${(d.data()["monthly_fee"] ?? "N/A").toString()}',
+                      ),
                       const SizedBox(height: 10),
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
-                          onPressed: _submitting ? null : () => _requestDriver(driverId: d.id, driverData: d.data()),
-                          child: _submitting ? const CircularProgressIndicator() : const Text('Request Driver'),
+                          onPressed: _submitting
+                              ? null
+                              : () => _requestDriver(
+                                  driverId: d.id,
+                                  driverData: d.data(),
+                                ),
+                          child: _submitting
+                              ? const CircularProgressIndicator()
+                              : const Text('Request Driver'),
                         ),
                       ),
                     ],

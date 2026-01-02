@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../services/auth_service.dart';
 import 'register_page.dart';
@@ -40,6 +41,10 @@ class _LoginPageState extends State<LoginPage> {
         _emailController.text.trim(),
         _passwordController.text,
       );
+    } on FirebaseAuthException catch (e) {
+      setState(() {
+        _error = _friendlyAuthError(e);
+      });
     } catch (e) {
       setState(() {
         _error = 'Login failed: $e';
@@ -63,6 +68,10 @@ class _LoginPageState extends State<LoginPage> {
         childIcNumber: _childIcController.text.trim(),
         parentPassword: _studentPasswordController.text,
       );
+    } on FirebaseAuthException catch (e) {
+      setState(() {
+        _error = _friendlyAuthError(e);
+      });
     } catch (e) {
       setState(() {
         _error = 'Student login failed!: $e';
@@ -73,6 +82,23 @@ class _LoginPageState extends State<LoginPage> {
           _loading = false;
         });
       }
+    }
+  }
+
+  String _friendlyAuthError(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'user-not-found':
+        return 'No account found for that email.';
+      case 'wrong-password':
+        return 'Incorrect email or password.';
+      case 'invalid-email':
+        return 'The email address is invalid.';
+      case 'user-disabled':
+        return 'This account has been disabled.';
+      case 'too-many-requests':
+        return 'Too many attempts. Try again later.';
+      default:
+        return e.message ?? 'Authentication failed.';
     }
   }
 
