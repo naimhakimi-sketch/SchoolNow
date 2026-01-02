@@ -406,6 +406,63 @@ class ProfilePage extends StatelessWidget {
                                       )
                                     : null,
                               ),
+                            const Divider(height: 1),
+                            StreamBuilder<
+                              DocumentSnapshot<Map<String, dynamic>>
+                            >(
+                              stream: FirebaseFirestore.instance
+                                  .collection('parents')
+                                  .doc(parentId)
+                                  .collection('children')
+                                  .doc(childDoc.id)
+                                  .snapshots(),
+                              builder: (context, childSnap) {
+                                final childData = childSnap.data?.data() ?? {};
+                                final serviceEndDate =
+                                    (childData['service_end_date']
+                                            as Timestamp?)
+                                        ?.toDate();
+                                if (serviceEndDate == null) {
+                                  return const SizedBox.shrink();
+                                }
+                                final serviceEndText =
+                                    '${serviceEndDate.year.toString().padLeft(4, '0')}-${serviceEndDate.month.toString().padLeft(2, '0')}-${serviceEndDate.day.toString().padLeft(2, '0')}';
+                                final now = DateTime.now();
+                                final today = DateTime(
+                                  now.year,
+                                  now.month,
+                                  now.day,
+                                );
+                                final daysUntilExpiry = serviceEndDate
+                                    .difference(today)
+                                    .inDays;
+                                return ListTile(
+                                  title: const Text('Service End Date'),
+                                  subtitle: Text(serviceEndText),
+                                  trailing:
+                                      daysUntilExpiry <= 7 &&
+                                          daysUntilExpiry > 0
+                                      ? Text(
+                                          '$daysUntilExpiry days left',
+                                          style: TextStyle(
+                                            color: daysUntilExpiry <= 2
+                                                ? Colors.red
+                                                : Colors.orange,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        )
+                                      : daysUntilExpiry <= 0
+                                      ? const Text(
+                                          'Expired',
+                                          style: TextStyle(
+                                            color: Colors.red,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        )
+                                      : null,
+                                );
+                              },
+                            ),
                           ],
                         ),
                       );

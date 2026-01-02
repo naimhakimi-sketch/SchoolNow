@@ -36,6 +36,7 @@ class ServiceRequestService {
 
     int total = snapshot.docs.length;
     int pending = 0;
+    int renewal = 0;
     int approved = 0;
     int rejected = 0;
 
@@ -44,6 +45,9 @@ class ServiceRequestService {
       switch (status) {
         case 'pending':
           pending++;
+          break;
+        case 'renewal':
+          renewal++;
           break;
         case 'approved':
           approved++;
@@ -57,6 +61,7 @@ class ServiceRequestService {
     return {
       'total': total,
       'pending': pending,
+      'renewal': renewal,
       'approved': approved,
       'rejected': rejected,
     };
@@ -93,8 +98,9 @@ class ServiceRequestService {
         final requestData = requestSnap.data();
         if (requestData == null) return;
 
-        // Only operate on pending requests
-        if ((requestData['status'] ?? '').toString() != 'pending') return;
+        // Only operate on pending or renewal requests
+        final currentStatus = (requestData['status'] ?? '').toString();
+        if (currentStatus != 'pending' && currentStatus != 'renewal') return;
 
         final studentId = (requestData['student_id'] ?? '').toString();
         if (studentId.isEmpty) return;
@@ -132,9 +138,42 @@ class ServiceRequestService {
               return;
             }
 
+            // Calculate service end date
+            DateTime serviceEndDate;
+            if (currentStatus == 'renewal') {
+              // For renewal, extend by 1 month from existing end date
+              final existingEndDate = (child?['service_end_date'] as Timestamp?)
+                  ?.toDate();
+              if (existingEndDate != null) {
+                // Extend from the existing end date
+                serviceEndDate = DateTime(
+                  existingEndDate.year + (existingEndDate.month == 12 ? 1 : 0),
+                  existingEndDate.month == 12 ? 1 : existingEndDate.month + 1,
+                  existingEndDate.day,
+                );
+              } else {
+                // Fallback: extend from today (shouldn't happen for renewal)
+                final now = DateTime.now();
+                serviceEndDate = DateTime(
+                  now.year + (now.month == 12 ? 1 : 0),
+                  now.month == 12 ? 1 : now.month + 1,
+                  now.day,
+                );
+              }
+            } else {
+              // For new requests, set to 1 month from today (1st of next month)
+              final now = DateTime.now();
+              serviceEndDate = DateTime(
+                now.year + (now.month == 12 ? 1 : 0),
+                now.month == 12 ? 1 : now.month + 1,
+                1,
+              );
+            }
+
             // Assign child to this driver (merge to avoid overwriting other fields)
             tx.set(childRef, {
               'assigned_driver_id': driverId,
+              'service_end_date': serviceEndDate,
               'updated_at': FieldValue.serverTimestamp(),
             }, SetOptions(merge: true));
           }

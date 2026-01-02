@@ -67,6 +67,7 @@ class _ManageServiceRequestsScreenState
                       children: [
                         _statItem('Total', stats['total'].toString()),
                         _statItem('Pending', stats['pending'].toString()),
+                        _statItem('Renewal', stats['renewal'].toString()),
                         _statItem('Approved', stats['approved'].toString()),
                         _statItem('Rejected', stats['rejected'].toString()),
                       ],
@@ -85,6 +86,8 @@ class _ManageServiceRequestsScreenState
                 _filterChip('All', 'all'),
                 const SizedBox(width: 8),
                 _filterChip('Pending', 'pending'),
+                const SizedBox(width: 8),
+                _filterChip('Renewal', 'renewal'),
                 const SizedBox(width: 8),
                 _filterChip('Approved', 'approved'),
                 const SizedBox(width: 8),
@@ -199,6 +202,10 @@ class _ManageServiceRequestsScreenState
         statusColor = Colors.orange;
         statusIcon = Icons.pending;
         break;
+      case 'renewal':
+        statusColor = Colors.blue;
+        statusIcon = Icons.refresh;
+        break;
       case 'rejected':
         statusColor = Colors.red;
         statusIcon = Icons.cancel;
@@ -284,7 +291,7 @@ class _ManageServiceRequestsScreenState
                     style: const TextStyle(fontSize: 12, color: Colors.black54),
                   ),
                 ],
-                if (status == 'pending' && driverId.isNotEmpty) ...[
+                if (status == 'pending' || status == 'renewal') ...[
                   const Divider(height: 24),
                   Row(
                     children: [

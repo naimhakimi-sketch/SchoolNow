@@ -430,6 +430,55 @@ class _DriversPageState extends State<DriversPage> {
                                   ),
                                 ),
                               ),
+                            StreamBuilder<
+                              DocumentSnapshot<Map<String, dynamic>>
+                            >(
+                              stream: FirebaseFirestore.instance
+                                  .collection('parents')
+                                  .doc(widget.parentId)
+                                  .collection('children')
+                                  .doc(widget.childDoc.id)
+                                  .snapshots(),
+                              builder: (context, childSnap) {
+                                final childData = childSnap.data?.data() ?? {};
+                                final serviceEndDate =
+                                    (childData['service_end_date']
+                                            as Timestamp?)
+                                        ?.toDate();
+                                if (serviceEndDate == null) {
+                                  return const SizedBox.shrink();
+                                }
+                                final serviceEndText =
+                                    '${serviceEndDate.year.toString().padLeft(4, '0')}-${serviceEndDate.month.toString().padLeft(2, '0')}-${serviceEndDate.day.toString().padLeft(2, '0')}';
+                                final now = DateTime.now();
+                                final today = DateTime(
+                                  now.year,
+                                  now.month,
+                                  now.day,
+                                );
+                                final daysUntilExpiry = serviceEndDate
+                                    .difference(today)
+                                    .inDays;
+                                return Padding(
+                                  padding: const EdgeInsets.only(top: 6),
+                                  child: Text(
+                                    'Service ends: $serviceEndText',
+                                    style: TextStyle(
+                                      color:
+                                          daysUntilExpiry <= 7 &&
+                                              daysUntilExpiry > 0
+                                          ? Colors.orange
+                                          : daysUntilExpiry <= 0
+                                          ? Colors.red
+                                          : Colors.black87,
+                                      fontWeight: daysUntilExpiry <= 7
+                                          ? FontWeight.bold
+                                          : FontWeight.normal,
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
                             const SizedBox(height: 12),
                             SizedBox(
                               width: double.infinity,
