@@ -335,6 +335,7 @@ class _DrivePageState extends State<DrivePage> {
               BoardingStatus.boarded,
             );
 
+            String studentName = studentId;
             try {
               final studentSnap = await FirebaseFirestore.instance
                   .collection('drivers')
@@ -344,10 +345,7 @@ class _DrivePageState extends State<DrivePage> {
                   .get();
               final parentId = (studentSnap.data()?['parent_id'] ?? '')
                   .toString();
-              final studentName = _displayStudentName(
-                studentSnap.data(),
-                studentId,
-              );
+              studentName = _displayStudentName(studentSnap.data(), studentId);
               if (parentId.isNotEmpty) {
                 await _notifications.createUnique(
                   notificationId: 'boarding_${tripId}_${studentId}_boarded',
@@ -360,7 +358,7 @@ class _DrivePageState extends State<DrivePage> {
 
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Marked boarded: $studentId')),
+                SnackBar(content: Text('Marked boarded: $studentName')),
               );
             }
           },

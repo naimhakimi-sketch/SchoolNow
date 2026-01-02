@@ -9,6 +9,23 @@ class StudentsPage extends StatelessWidget {
 
   const StudentsPage({super.key, required this.driverId});
 
+  String _displayStudentName(Map<String, dynamic>? student, String studentId) {
+    if (student == null) return studentId;
+    final candidates = <String?>[];
+    candidates.add((student['student_name'] ?? '').toString());
+    candidates.add((student['name'] ?? '').toString());
+    candidates.add((student['child_name'] ?? '').toString());
+    candidates.add((student['childName'] ?? '').toString());
+    final child = student['child'];
+    if (child is Map) {
+      candidates.add((child['name'] ?? '').toString());
+    }
+    for (final c in candidates) {
+      if (c != null && c.trim().isNotEmpty) return c;
+    }
+    return studentId;
+  }
+
   @override
   Widget build(BuildContext context) {
     final studentService = StudentManagementService();
@@ -58,8 +75,10 @@ class StudentsPage extends StatelessWidget {
                               .cast<String, dynamic>();
                           final studentId = (data['student_id'] ?? d.id)
                               .toString();
-                          final studentName = (data['student_name'] ?? '')
-                              .toString();
+                          final studentName = _displayStudentName(
+                            data,
+                            studentId,
+                          );
                           final parentName = (data['parent_name'] ?? '')
                               .toString();
 
@@ -164,8 +183,10 @@ class StudentsPage extends StatelessWidget {
                           final data = (d.data() as Map)
                               .cast<String, dynamic>();
                           final studentId = d.id;
-                          final studentName = (data['student_name'] ?? '')
-                              .toString();
+                          final studentName = _displayStudentName(
+                            data,
+                            studentId,
+                          );
                           final parentName = (data['parent_name'] ?? '')
                               .toString();
                           final parentPhone = (data['parent_phone'] ?? '')
