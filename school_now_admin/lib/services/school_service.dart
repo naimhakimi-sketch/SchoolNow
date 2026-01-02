@@ -13,10 +13,9 @@ class SchoolService {
       'name': name,
       'type': type,
       'address': address,
-      'geo_location': {
-        'latitude': location.latitude,
-        'longitude': location.longitude,
-      },
+      'geo_location': {'lat': location.latitude, 'lng': location.longitude},
+      'created_at': FieldValue.serverTimestamp(),
+      'updated_at': FieldValue.serverTimestamp(),
     });
   }
 
@@ -35,10 +34,8 @@ class SchoolService {
       'name': name,
       'type': type,
       'address': address,
-      'geo_location': {
-        'latitude': location.latitude,
-        'longitude': location.longitude,
-      },
+      'geo_location': {'lat': location.latitude, 'lng': location.longitude},
+      'updated_at': FieldValue.serverTimestamp(),
     });
   }
 

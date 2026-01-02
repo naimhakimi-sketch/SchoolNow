@@ -1,7 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class StudentService {
-  // Get all children from all parents and map to student-like structure
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  /// Get all children from all parents as a unified student list
+  /// SOURCE OF TRUTH: parents/{parentId}/children/{childId}
   Future<List<Map<String, dynamic>>> getAllChildrenAsStudents() async {
     final parentsSnap = await _firestore.collection('parents').get();
     List<Map<String, dynamic>> students = [];
@@ -27,40 +30,18 @@ class StudentService {
           'attendance_date_ymd': data['attendance_date_ymd'],
           'attendance_override': data['attendance_override'],
           'pickup_location': data['pickup_location'],
-          'school_lat': data['school_lat'],
-          'school_lng': data['school_lng'],
           'created_at': data['created_at'],
           'updated_at': data['updated_at'],
+          'from_children':
+              true, // Mark to distinguish from independent students
         });
       }
     }
     return students;
   }
 
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-
-  // Get all students
-  Stream<QuerySnapshot> getStudentsStream() {
-    return _firestore.collection('students').orderBy('name').snapshots();
-  }
-
-  // Get students by parent
-  Stream<QuerySnapshot> getStudentsByParent(String parentId) {
-    return _firestore
-        .collection('students')
-        .where('parent_id', isEqualTo: parentId)
-        .snapshots();
-  }
-
-  // Get students by school
-  Stream<QuerySnapshot> getStudentsBySchool(String schoolId) {
-    return _firestore
-        .collection('students')
-        .where('school_id', isEqualTo: schoolId)
-        .snapshots();
-  }
-
-  // Add student
+  /// Add a new child to a parent
+  /// This creates the single source of truth for the student
   Future<void> addStudent({
     required String name,
     required String parentId,
@@ -69,70 +50,181 @@ class StudentService {
     String? grade,
     String? section,
   }) async {
-    await _firestore.collection('students').add({
-      'name': name,
-      'parent_id': parentId,
-      'school_id': schoolId,
-      'driver_id': driverId,
-      'grade': grade,
-      'section': section,
-      'created_at': FieldValue.serverTimestamp(),
-    });
+    // Validate parent exists
+    final parentDoc = await _firestore
+        .collection('parents')
+        .doc(parentId)
+        .get();
+    if (!parentDoc.exists) {
+      throw Exception('Parent does not exist');
+    }
+
+    // Validate school exists
+    final schoolDoc = await _firestore
+        .collection('schools')
+        .doc(schoolId)
+        .get();
+    if (!schoolDoc.exists) {
+      throw Exception('School does not exist');
+    }
+
+    // Get parent details for reference
+    final parentData = parentDoc.data() as Map<String, dynamic>;
+    final parentName = parentData['name'] ?? 'Unknown';
+
+    // Create child document in parent's children subcollection
+    final childRef = await _firestore
+        .collection('parents')
+        .doc(parentId)
+        .collection('children')
+        .add({
+          'child_name': name,
+          'child_ic': '',
+          'child_ic_normalized': '',
+          'school_name': schoolDoc['name'] ?? '',
+          'school_id': schoolId,
+          'assigned_driver_id': driverId ?? '',
+          'attendance_override': 'attending',
+          'attendance_date_ymd': '',
+          'pickup_location': parentData['pickup_location'] ?? {},
+          'created_at': FieldValue.serverTimestamp(),
+          'updated_at': FieldValue.serverTimestamp(),
+        });
+
+    // If driver is assigned, add to driver's students collection (as cache)
+    if (driverId != null && driverId.isNotEmpty) {
+      await _firestore
+          .collection('drivers')
+          .doc(driverId)
+          .collection('students')
+          .doc(childRef.id)
+          .set({
+            'student_name': name,
+            'parent_name': parentName,
+            'contact_number': parentData['contact_number'] ?? '',
+            'parent_id': parentId,
+            'pickup_location': parentData['pickup_location'] ?? {},
+            'attendance_override': 'attending',
+            'attendance_date_ymd': '',
+            'created_at': FieldValue.serverTimestamp(),
+            'updated_at': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+    }
   }
 
-  // Update student
+  /// Update a child in parent's collection
+  /// Syncs to driver's students collection if driver is assigned
   Future<void> updateStudent({
     required String studentId,
-    required String name,
     required String parentId,
+    required String name,
     required String schoolId,
     String? driverId,
-    String? grade,
-    String? section,
   }) async {
-    await _firestore.collection('students').doc(studentId).update({
-      'name': name,
-      'parent_id': parentId,
+    final childRef = _firestore
+        .collection('parents')
+        .doc(parentId)
+        .collection('children')
+        .doc(studentId);
+
+    final batch = _firestore.batch();
+
+    // Update child in parent's collection
+    batch.set(childRef, {
+      'child_name': name,
       'school_id': schoolId,
-      'driver_id': driverId,
-      'grade': grade,
-      'section': section,
       'updated_at': FieldValue.serverTimestamp(),
-    });
+    }, SetOptions(merge: true));
+
+    // Get old data to check if driver assignment changed
+    final oldDoc = await childRef.get();
+    final oldDriverId = (oldDoc.data()?['assigned_driver_id'] ?? '').toString();
+
+    // Update driver's students collection if driver is assigned
+    if (driverId != null && driverId.isNotEmpty) {
+      final driverStudentRef = _firestore
+          .collection('drivers')
+          .doc(driverId)
+          .collection('students')
+          .doc(studentId);
+      batch.set(driverStudentRef, {
+        'student_name': name,
+        'updated_at': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    // Remove from old driver if reassigned
+    if (oldDriverId.isNotEmpty && oldDriverId != driverId) {
+      final oldDriverRef = _firestore
+          .collection('drivers')
+          .doc(oldDriverId)
+          .collection('students')
+          .doc(studentId);
+      batch.delete(oldDriverRef);
+    }
+
+    await batch.commit();
   }
 
-  // Delete student
-  Future<void> deleteStudent(String studentId) async {
+  /// Delete a child from parent's collection
+  /// Also cleans up driver's students collection and checks for conflicts
+  Future<void> deleteStudent(String parentId, String studentId) async {
     // Check for related payments
     final paymentsSnapshot = await _firestore
         .collection('payments')
-        .where('student_id', isEqualTo: studentId)
+        .where('child_id', isEqualTo: studentId)
         .get();
 
     if (paymentsSnapshot.docs.isNotEmpty) {
       throw Exception('Cannot delete student with existing payments');
     }
 
-    await _firestore.collection('students').doc(studentId).delete();
+    // Get the student to find assigned driver
+    final childDoc = await _firestore
+        .collection('parents')
+        .doc(parentId)
+        .collection('children')
+        .doc(studentId)
+        .get();
+
+    final driverId = (childDoc.data()?['assigned_driver_id'] ?? '').toString();
+
+    // Delete with batch to ensure consistency
+    final batch = _firestore.batch();
+
+    // Delete from parent's children
+    batch.delete(childDoc.reference);
+
+    // Remove from driver's students if assigned
+    if (driverId.isNotEmpty) {
+      final driverStudentRef = _firestore
+          .collection('drivers')
+          .doc(driverId)
+          .collection('students')
+          .doc(studentId);
+      batch.delete(driverStudentRef);
+    }
+
+    await batch.commit();
   }
 
-  // Get parent details
+  /// Get parent details
   Future<DocumentSnapshot> getParent(String parentId) {
     return _firestore.collection('parents').doc(parentId).get();
   }
 
-  // Get school details
+  /// Get school details
   Future<DocumentSnapshot> getSchool(String schoolId) {
     return _firestore.collection('schools').doc(schoolId).get();
   }
 
-  // Get driver details
+  /// Get driver details
   Future<DocumentSnapshot?> getDriver(String? driverId) {
     if (driverId == null || driverId.isEmpty) return Future.value(null);
     return _firestore.collection('drivers').doc(driverId).get();
   }
 
-  // Get all parents for dropdown
+  /// Get all parents for dropdown
   Future<List<Map<String, dynamic>>> getAllParents() async {
     final snapshot = await _firestore
         .collection('parents')
@@ -147,7 +239,7 @@ class StudentService {
     }).toList();
   }
 
-  // Get all schools for dropdown
+  /// Get all schools for dropdown
   Future<List<Map<String, dynamic>>> getAllSchools() async {
     final snapshot = await _firestore
         .collection('schools')
@@ -162,7 +254,7 @@ class StudentService {
     }).toList();
   }
 
-  // Get available drivers for dropdown
+  /// Get available drivers for dropdown
   Future<List<Map<String, dynamic>>> getAvailableDrivers() async {
     final snapshot = await _firestore
         .collection('drivers')
@@ -174,19 +266,20 @@ class StudentService {
       return {
         'id': doc.id,
         'name': data['name'] ?? 'Unknown',
-        'bus_plate': data.containsKey('plate_number')
-            ? data['plate_number']
-            : 'No bus',
+        'assigned_bus_id': data['assigned_bus_id'] ?? 'No bus',
       };
     }).toList();
   }
 
-  // Search students
-  Future<List<DocumentSnapshot>> searchStudents(String query) async {
-    final snapshot = await _firestore.collection('students').get();
-    return snapshot.docs.where((doc) {
-      final name = (doc['name'] ?? '').toString().toLowerCase();
-      return name.contains(query.toLowerCase());
-    }).toList();
+  /// Search students in parent's children collections
+  Future<List<Map<String, dynamic>>> searchStudents(String query) async {
+    final allStudents = await getAllChildrenAsStudents();
+    return allStudents
+        .where(
+          (student) => (student['name'] as String).toLowerCase().contains(
+            query.toLowerCase(),
+          ),
+        )
+        .toList();
   }
 }

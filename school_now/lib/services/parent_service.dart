@@ -24,10 +24,33 @@ class ParentService {
   }
 
   Future<void> updateParent(String parentId, Map<String, dynamic> patch) async {
-    await parentRef(parentId).set({
-      ...patch,
-      'updated_at': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    // If pickup_location is being updated, also update all children
+    if (patch.containsKey('pickup_location')) {
+      final childrenSnap = await childrenRef(parentId).get();
+      final batch = _db.batch();
+
+      // Update parent
+      batch.set(parentRef(parentId), {
+        ...patch,
+        'updated_at': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      // Update all children with new pickup location
+      for (final childDoc in childrenSnap.docs) {
+        batch.update(childDoc.reference, {
+          'pickup_location': patch['pickup_location'],
+          'updated_at': FieldValue.serverTimestamp(),
+        });
+      }
+
+      await batch.commit();
+    } else {
+      // Normal update without pickup_location change
+      await parentRef(parentId).set({
+        ...patch,
+        'updated_at': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
   }
 
   CollectionReference<Map<String, dynamic>> childrenRef(String parentId) =>
@@ -50,6 +73,11 @@ class ParentService {
         .replaceAll(RegExp(r'[^0-9A-Za-z]'), '')
         .toUpperCase();
 
+    // Get parent's pickup location
+    final parentDoc = await _db.collection('parents').doc(parentId).get();
+    final parentData = parentDoc.data();
+    final pickupLocation = parentData?['pickup_location'];
+
     final ref = childrenRef(parentId).doc();
     await ref.set({
       'child_name': childName,
@@ -60,6 +88,7 @@ class ParentService {
       'assigned_driver_id': null,
       'attendance_override': 'attending',
       'attendance_date_ymd': _todayYmd(),
+      'pickup_location': pickupLocation,
       'created_at': FieldValue.serverTimestamp(),
       'updated_at': FieldValue.serverTimestamp(),
     });

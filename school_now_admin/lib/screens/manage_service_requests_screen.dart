@@ -280,7 +280,7 @@ class _ManageServiceRequestsScreenState
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Lat: ${data['pickup_location']['latitude']}, Lng: ${data['pickup_location']['longitude']}',
+                    'Lat: ${data['pickup_location']['lat']}, Lng: ${data['pickup_location']['lng']}',
                     style: const TextStyle(fontSize: 12, color: Colors.black54),
                   ),
                 ],

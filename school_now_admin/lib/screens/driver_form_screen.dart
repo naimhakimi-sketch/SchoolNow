@@ -164,8 +164,8 @@ class _DriverFormScreenState extends State<DriverFormScreen> {
       return true;
     }
 
-    final schoolLat = school['geo_location']['latitude'] as double?;
-    final schoolLng = school['geo_location']['longitude'] as double?;
+    final schoolLat = school['geo_location']['lat'] as double?;
+    final schoolLng = school['geo_location']['lng'] as double?;
     final centerLat = _serviceArea!['center_lat'] as double?;
     final centerLng = _serviceArea!['center_lng'] as double?;
     final radiusKm = _serviceArea!['radius_km'] as double?;

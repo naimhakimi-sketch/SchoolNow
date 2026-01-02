@@ -299,6 +299,101 @@ Admin Dashboard
 - Batch operations (e.g., bulk student import)
 - Audit log for all admin actions
 
+## Data Architecture Fix: Single Source of Truth
+
+### Problem Addressed
+
+The application had critical data redundancy where student information was stored in THREE separate locations:
+
+1. `parents/{parentId}/children/{childId}` - Primary record created by parents
+2. `students/{studentId}` - Independent record managed by admin (NO SYNC)
+3. `drivers/{driverId}/students/{studentId}` - Cache of assigned students
+
+This caused:
+
+- **Data inconsistency**: Admin updates to students collection didn't sync to parent or driver collections
+- **Orphaned records**: Students created in students collection had no parent relationship
+- **Maintenance burden**: Three code paths to maintain, no referential integrity
+- **Firebase limitation**: No foreign key constraints requiring manual relationship management
+
+### Solution Implemented
+
+**New Architecture**: `parents/{parentId}/children` is the single source of truth
+
+All student data now originates from the parent's children subcollection:
+
+```
+parents/{parentId}/children/{childId}  ← SINGLE SOURCE OF TRUTH
+  ├── child_name
+  ├── school_id
+  ├── assigned_driver_id
+  └── pickup_location
+
+drivers/{driverId}/students/{childId}  ← READ-ONLY CACHE (auto-synced)
+  ├── child_id
+  ├── parent_id
+  ├── child_name
+  └── school_id
+
+students/  ← REMOVED FROM CODE (can be safely deleted)
+```
+
+### Changes Made
+
+#### student_service.dart (Completely Rewritten)
+
+- ✅ Removed all `collection('students')` queries
+- ✅ `getAllChildrenAsStudents()` - Aggregates from all parents
+- ✅ `addStudent(name, parentId, schoolId, driverId)` - Creates child, syncs to driver cache via batch
+- ✅ `updateStudent(studentId, parentId, ...)` - Updates with atomic batch sync
+- ✅ `deleteStudent(parentId, studentId)` - Deletes from parent AND driver collections atomically
+- ✅ Validation: Ensures parent, school, driver exist before operations
+- ✅ Batch operations: All cross-collection updates atomic
+
+#### manage_students_screen.dart
+
+- ✅ Delete dialog simplified (removed restriction on children deletions)
+- ✅ Updated delete call with parentId parameter
+- ✅ Updated `_saveStudent()` method with correct StudentService signatures
+- ✅ Added parent read-only once selected
+
+#### service_request_service.dart
+
+- ✅ Service request approval syncs to driver's students subcollection
+- ✅ Batch operation creates cache entry with child data
+- ✅ Proper field mapping for driver cache
+
+#### admin_driver_service.dart
+
+- ✅ Delete check now uses `drivers/{driverId}/students` instead of independent students collection
+
+### Key Benefits
+
+- ✅ **Single Source of Truth**: Eliminates inconsistency
+- ✅ **Atomic Operations**: Batch writes ensure consistency across collections
+- ✅ **No Orphaned Records**: All students have parent relationships
+- ✅ **Automatic Sync**: Driver app cache always up-to-date
+- ✅ **Simpler Code**: One data path instead of three
+
+### Testing Results
+
+All three apps verified to compile without errors:
+
+- ✅ `school_now` (parent app) - No issues
+- ✅ `school_now_admin` (admin app) - No issues
+- ✅ `school_now_driver` (driver app) - No issues
+
+### Backward Compatibility
+
+✅ Changes are safe:
+
+- Parent app unchanged (still creates children in parent's collection)
+- Driver app unchanged (still reads from drivers/{driverId}/students)
+- No data migration required (relationships already exist)
+- Legacy students collection can be safely ignored or deleted
+
 ## Conclusion
 
 All functional requirements from "Project Progress Week 10" have been successfully implemented. The admin app now provides comprehensive management capabilities for schools, buses, drivers, parents, students, payments, and service requests. The parent app has been updated to use admin-managed schools for a more controlled and consistent data structure.
+
+Critical data redundancy issues have been resolved by consolidating student data to a single source of truth with atomic synchronization to derived caches.

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -41,6 +42,17 @@ class _DrivePageState extends State<DrivePage> {
 
   LatLng? _currentRouteStart;
   bool _loadingCurrentRouteStart = false;
+
+  // Live location tracking
+  LatLng? _currentLocation;
+  StreamSubscription<LocationData>? _locationSubscription;
+
+  // Cached operator location
+  LatLng? _operatorLocation;
+
+  // Cache for school locations and types
+  final Map<String, LatLng> _schoolLocations = {};
+  final Map<String, String> _schoolTypes = {};
 
   String _todayYmd() {
     final now = DateTime.now();
@@ -343,8 +355,10 @@ class _DrivePageState extends State<DrivePage> {
 
   LatLng? _latLngFromMap(Map<String, dynamic>? m) {
     if (m == null) return null;
-    final lat = (m['lat'] as num?)?.toDouble();
-    final lng = (m['lng'] as num?)?.toDouble();
+    final lat =
+        (m['lat'] as num?)?.toDouble() ?? (m['latitude'] as num?)?.toDouble();
+    final lng =
+        (m['lng'] as num?)?.toDouble() ?? (m['longitude'] as num?)?.toDouble();
     if (lat == null || lng == null) return null;
     return LatLng(lat, lng);
   }
@@ -356,12 +370,78 @@ class _DrivePageState extends State<DrivePage> {
   }
 
   LatLng? _schoolPoint(Map<String, dynamic>? driverData) {
-    final serviceArea = (driverData?['service_area'] as Map?)
+    final school = (driverData?['school_location'] as Map?)
         ?.cast<String, dynamic>();
-    final lat = (serviceArea?['school_lat'] as num?)?.toDouble();
-    final lng = (serviceArea?['school_lng'] as num?)?.toDouble();
-    if (lat == null || lng == null) return null;
-    return LatLng(lat, lng);
+    return _latLngFromMap(school);
+  }
+
+  Future<LatLng?> _getOperatorLocation() async {
+    if (_operatorLocation != null) return _operatorLocation;
+
+    try {
+      final operatorDoc = await FirebaseFirestore.instance
+          .collection('settings')
+          .doc('operator')
+          .get();
+
+      if (operatorDoc.exists) {
+        final data = operatorDoc.data();
+        final lat = data?['latitude'] as double?;
+        final lng = data?['longitude'] as double?;
+        if (lat != null && lng != null) {
+          _operatorLocation = LatLng(lat, lng);
+          return _operatorLocation;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading operator location: $e');
+    }
+    return null;
+  }
+
+  LatLng? _getCachedOperatorLocation() {
+    return _operatorLocation;
+  }
+
+  LatLng? _getSchoolLocation(String schoolId) {
+    return _schoolLocations[schoolId];
+  }
+
+  Future<void> _loadSchoolLocations(
+    Map<String, Map<String, dynamic>> studentById,
+  ) async {
+    final schoolIds = studentById.values
+        .map((student) => (student['school_id'] ?? '').toString())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+
+    for (final schoolId in schoolIds) {
+      if (_schoolLocations.containsKey(schoolId)) continue;
+
+      try {
+        final schoolDoc = await FirebaseFirestore.instance
+            .collection('schools')
+            .doc(schoolId)
+            .get();
+
+        if (schoolDoc.exists) {
+          final data = schoolDoc.data();
+          final geoLocation = data?['geo_location'] as Map?;
+          final schoolType = (data?['type'] ?? 'primary').toString();
+
+          if (geoLocation != null) {
+            final lat = (geoLocation['lat'] as num?)?.toDouble();
+            final lng = (geoLocation['lng'] as num?)?.toDouble();
+            if (lat != null && lng != null) {
+              _schoolLocations[schoolId] = LatLng(lat, lng);
+              _schoolTypes[schoolId] = schoolType;
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Error loading school location for $schoolId: $e');
+      }
+    }
   }
 
   List<Map<String, dynamic>> _sortStopsByNearestNeighbor({
@@ -395,8 +475,7 @@ class _DrivePageState extends State<DrivePage> {
     LatLng? currentPosition,
   }) {
     final home = _driverHome(driverData);
-    final school = _schoolPoint(driverData);
-    if (home == null || school == null) return const [];
+    if (home == null) return const [];
 
     final start = currentPosition ?? home;
 
@@ -416,45 +495,148 @@ class _DrivePageState extends State<DrivePage> {
       return _latLngFromMap(loc);
     }
 
+    LatLng? dropoffOf(String studentId) {
+      final data = studentById[studentId];
+      final loc = (data?['dropoff_location'] as Map?)?.cast<String, dynamic>();
+      return _latLngFromMap(loc);
+    }
+
+    final schoolsWithActiveStudents = <String, List<String>>{};
+    for (final studentId in studentById.keys) {
+      final studentData = studentById[studentId]!;
+      final schoolId = (studentData['school_id'] ?? '').toString();
+      if (schoolId.isEmpty) continue;
+
+      final status = statusOf(studentId);
+      final isActive = status != BoardingStatus.absent;
+
+      if (isActive) {
+        schoolsWithActiveStudents
+            .putIfAbsent(schoolId, () => [])
+            .add(studentId);
+      }
+    }
+
     final isAfternoon = _isAfternoonRoute(routeType);
-    final studentIds = studentById.keys.toList();
 
     if (!isAfternoon) {
+      // Morning route: home -> student pickups -> schools (in optimal order)
       final pendingPickups = <Map<String, dynamic>>[];
-      for (final id in studentIds) {
-        final s = statusOf(id);
-        if (s == BoardingStatus.boarded ||
-            s == BoardingStatus.absent ||
-            s == BoardingStatus.alighted) {
+      final schoolStops = <Map<String, dynamic>>[];
+
+      for (final studentId in studentById.keys) {
+        final status = statusOf(studentId);
+        if (status == BoardingStatus.boarded ||
+            status == BoardingStatus.absent ||
+            status == BoardingStatus.alighted) {
           continue;
         }
-        final p = pickupOf(id);
-        if (p != null) {
-          pendingPickups.add({'student_id': id, 'point': p});
+        final pickup = pickupOf(studentId);
+        if (pickup != null) {
+          pendingPickups.add({'student_id': studentId, 'point': pickup});
         }
       }
 
-      final ordered = pendingPickups.isEmpty
+      // Add schools that have active students
+      for (final schoolId in schoolsWithActiveStudents.keys) {
+        final schoolLocation = _getSchoolLocation(schoolId);
+        if (schoolLocation != null) {
+          schoolStops.add({'school_id': schoolId, 'point': schoolLocation});
+        }
+      }
+
+      final orderedPickups = pendingPickups.isEmpty
           ? const <Map<String, dynamic>>[]
           : _sortStopsByNearestNeighbor(origin: start, stops: pendingPickups);
-      return [start, ...ordered.map((e) => e['point'] as LatLng), school];
-    }
 
-    final remainingDropoffs = <Map<String, dynamic>>[];
-    for (final id in studentIds) {
-      final s = statusOf(id);
-      if (s == BoardingStatus.absent || s == BoardingStatus.alighted) continue;
-      final p = pickupOf(id);
-      if (p != null) {
-        remainingDropoffs.add({'student_id': id, 'point': p});
+      final orderedSchools = schoolStops.isEmpty
+          ? const <Map<String, dynamic>>[]
+          : _sortStopsByNearestNeighbor(
+              origin: orderedPickups.isNotEmpty
+                  ? orderedPickups.last['point'] as LatLng
+                  : start,
+              stops: schoolStops,
+            );
+
+      return [
+        start,
+        ...orderedPickups.map((e) => e['point'] as LatLng),
+        ...orderedSchools.map((e) => e['point'] as LatLng),
+      ];
+    } else {
+      // Afternoon route: current position -> schools (filtered by type for school sessions) -> student dropoffs -> home
+      final schoolStops = <Map<String, dynamic>>[];
+      final remainingDropoffs = <Map<String, dynamic>>[];
+
+      // For school sessions, only visit schools of the matching type first
+      final targetSchoolType = routeType == 'primary_pm'
+          ? 'primary'
+          : routeType == 'secondary_pm'
+          ? 'secondary'
+          : null;
+
+      // Add schools that have active students (filtered by type for school sessions)
+      for (final schoolId in schoolsWithActiveStudents.keys) {
+        final schoolLocation = _getSchoolLocation(schoolId);
+        final schoolType = _schoolTypes[schoolId] ?? 'primary';
+
+        if (schoolLocation != null &&
+            (targetSchoolType == null || schoolType == targetSchoolType)) {
+          schoolStops.add({'school_id': schoolId, 'point': schoolLocation});
+        }
       }
+
+      // Add remaining dropoffs (only from schools we visited for primary sessions)
+      final visitedSchoolIds = targetSchoolType != null
+          ? schoolsWithActiveStudents.keys
+                .where(
+                  (schoolId) =>
+                      (_schoolTypes[schoolId] ?? 'primary') == targetSchoolType,
+                )
+                .toSet()
+          : schoolsWithActiveStudents.keys.toSet();
+
+      for (final studentId in studentById.keys) {
+        final studentData = studentById[studentId]!;
+        final studentSchoolId = (studentData['school_id'] ?? '').toString();
+
+        // For primary sessions, only drop off students from primary schools we visited
+        if (targetSchoolType != null &&
+            !visitedSchoolIds.contains(studentSchoolId)) {
+          continue;
+        }
+
+        final status = statusOf(studentId);
+        if (status == BoardingStatus.absent ||
+            status == BoardingStatus.alighted) {
+          continue;
+        }
+        final dropoff = dropoffOf(studentId);
+        if (dropoff != null) {
+          remainingDropoffs.add({'student_id': studentId, 'point': dropoff});
+        }
+      }
+
+      final orderedSchools = schoolStops.isEmpty
+          ? const <Map<String, dynamic>>[]
+          : _sortStopsByNearestNeighbor(origin: start, stops: schoolStops);
+
+      final orderedDropoffs = remainingDropoffs.isEmpty
+          ? const <Map<String, dynamic>>[]
+          : _sortStopsByNearestNeighbor(
+              origin: orderedSchools.isNotEmpty
+                  ? orderedSchools.last['point'] as LatLng
+                  : start,
+              stops: remainingDropoffs,
+            );
+
+      return [
+        start,
+        ...orderedSchools.map((e) => e['point'] as LatLng),
+        ...orderedDropoffs.map((e) => e['point'] as LatLng),
+        _getCachedOperatorLocation() ?? home,
+      ];
     }
-    final ordered = remainingDropoffs.isEmpty
-        ? const <Map<String, dynamic>>[]
-        : _sortStopsByNearestNeighbor(origin: school, stops: remainingDropoffs);
-    // Afternoon flow: driver can start anywhere, but first stop is school.
-    // Last destination is home.
-    return [start, school, ...ordered.map((e) => e['point'] as LatLng), home];
   }
 
   LatLng? _nextDestination({
@@ -610,6 +792,38 @@ class _DrivePageState extends State<DrivePage> {
       );
     }
 
+    // Add operator location marker
+    final operatorLocation = _getCachedOperatorLocation();
+    if (operatorLocation != null) {
+      markers.add(
+        Marker(
+          point: operatorLocation,
+          width: 44,
+          height: 44,
+          child: const Icon(Icons.business, color: Colors.purple, size: 40),
+        ),
+      );
+    }
+
+    // Add current location marker
+    if (_currentLocation != null) {
+      markers.add(
+        Marker(
+          point: _currentLocation!,
+          width: 50,
+          height: 50,
+          child: Container(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.blue.withValues(alpha: 0.2),
+              border: Border.all(color: Colors.blue, width: 3),
+            ),
+            child: const Icon(Icons.my_location, color: Colors.blue, size: 30),
+          ),
+        ),
+      );
+    }
+
     BoardingStatus statusOf(String studentId) {
       final p = passengers.firstWhere(
         (x) => (x['student_id'] ?? '').toString() == studentId,
@@ -753,6 +967,59 @@ class _DrivePageState extends State<DrivePage> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _startLocationTracking();
+    _loadOperatorLocation();
+  }
+
+  @override
+  void dispose() {
+    _locationSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _startLocationTracking() async {
+    try {
+      bool serviceEnabled = await _deviceLocation.serviceEnabled();
+      if (!serviceEnabled) {
+        serviceEnabled = await _deviceLocation.requestService();
+        if (!serviceEnabled) return;
+      }
+
+      PermissionStatus permission = await _deviceLocation.hasPermission();
+      if (permission == PermissionStatus.denied) {
+        permission = await _deviceLocation.requestPermission();
+        if (permission != PermissionStatus.granted) return;
+      }
+
+      _locationSubscription = _deviceLocation.onLocationChanged.listen((
+        LocationData locationData,
+      ) {
+        if (locationData.latitude != null && locationData.longitude != null) {
+          final newLocation = LatLng(
+            locationData.latitude!,
+            locationData.longitude!,
+          );
+          if (mounted) {
+            setState(() {
+              _currentLocation = newLocation;
+              // Also update route start if not already set
+              _currentRouteStart ??= newLocation;
+            });
+          }
+        }
+      });
+    } catch (e) {
+      debugPrint('Error starting location tracking: $e');
+    }
+  }
+
+  void _loadOperatorLocation() async {
+    await _getOperatorLocation();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: _driverService.streamDriver(widget.driverId),
@@ -764,6 +1031,11 @@ class _DrivePageState extends State<DrivePage> {
           builder: (context, studentsSnap) {
             final studentDocs = studentsSnap.data?.docs ?? const [];
             final studentById = {for (final d in studentDocs) d.id: d.data()};
+
+            // Load school locations
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _loadSchoolLocations(studentById);
+            });
 
             return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>?>(
               stream: _tripService.streamActiveTripForDriver(widget.driverId),

@@ -215,17 +215,6 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
   }
 
   Future<void> _confirmDelete(Map<String, dynamic> student) async {
-    // Only allow delete for students from the main students collection (not children subcollections)
-    if (student['from_children'] == true) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Cannot delete students from children subcollections.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -249,7 +238,10 @@ class _ManageStudentsScreenState extends State<ManageStudentsScreen> {
 
     if (confirmed == true && mounted) {
       try {
-        await _studentService.deleteStudent(student['id']);
+        await _studentService.deleteStudent(
+          student['parent_id'],
+          student['id'],
+        );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -669,7 +661,7 @@ class _StudentDialogState extends State<_StudentDialog> {
           child: const Text('Cancel'),
         ),
         ElevatedButton(
-          onPressed: _isLoading || isFromChildren ? null : _saveStudent,
+          onPressed: _isLoading ? null : _saveStudent,
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.deepPurple,
             foregroundColor: Colors.white,
@@ -684,23 +676,23 @@ class _StudentDialogState extends State<_StudentDialog> {
     if (!_formKey.currentState!.validate()) return;
 
     try {
-      // Only allow add if student is null
       if (widget.student == null) {
+        // Add new student
         await widget.studentService.addStudent(
           name: _nameController.text.trim(),
           parentId: _selectedParentId!,
           schoolId: _selectedSchoolId!,
           driverId: _selectedDriverId,
-          grade: _gradeController.text.trim().isEmpty
-              ? null
-              : _gradeController.text.trim(),
-          section: _sectionController.text.trim().isEmpty
-              ? null
-              : _sectionController.text.trim(),
         );
       } else {
-        // Editing is disabled for students from children subcollections (UI disables Save button)
-        return;
+        // Update existing student (only name and school can be changed)
+        await widget.studentService.updateStudent(
+          studentId: widget.student!['id'],
+          parentId: widget.student!['parent_id'],
+          name: _nameController.text.trim(),
+          schoolId: _selectedSchoolId!,
+          driverId: _selectedDriverId,
+        );
       }
 
       if (mounted) {

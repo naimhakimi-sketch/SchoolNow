@@ -25,8 +25,10 @@ class MonitorPage extends StatefulWidget {
 
   static LatLng? _latLngFromMap(Map<String, dynamic>? m) {
     if (m == null) return null;
-    final lat = (m['lat'] as num?)?.toDouble();
-    final lng = (m['lng'] as num?)?.toDouble();
+    final lat =
+        (m['lat'] as num?)?.toDouble() ?? (m['latitude'] as num?)?.toDouble();
+    final lng =
+        (m['lng'] as num?)?.toDouble() ?? (m['longitude'] as num?)?.toDouble();
     if (lat == null || lng == null) return null;
     return LatLng(lat, lng);
   }

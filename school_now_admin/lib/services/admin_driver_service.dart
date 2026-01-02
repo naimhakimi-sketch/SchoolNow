@@ -85,10 +85,11 @@ class AdminDriverService {
   }
 
   Future<void> deleteDriver(String id) async {
-    // Check if driver has assigned students (match UI logic)
+    // Check if driver has assigned students by checking driver's students subcollection
     final studentsSnap = await _db
+        .collection('drivers')
+        .doc(id)
         .collection('students')
-        .where('driver_id', isEqualTo: id)
         .limit(1)
         .get();
 

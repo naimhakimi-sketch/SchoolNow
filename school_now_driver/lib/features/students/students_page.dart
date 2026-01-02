@@ -7,10 +7,7 @@ import '../../services/student_management_service.dart';
 class StudentsPage extends StatelessWidget {
   final String driverId;
 
-  const StudentsPage({
-    super.key,
-    required this.driverId,
-  });
+  const StudentsPage({super.key, required this.driverId});
 
   @override
   Widget build(BuildContext context) {
@@ -28,7 +25,10 @@ class StudentsPage extends StatelessWidget {
             Expanded(
               child: ListView(
                 children: [
-                  Text('Pending Requests', style: Theme.of(context).textTheme.titleMedium),
+                  Text(
+                    'Pending Requests',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                   const SizedBox(height: 8),
                   StreamBuilder(
                     stream: studentService.streamPendingRequests(driverId),
@@ -38,8 +38,14 @@ class StudentsPage extends StatelessWidget {
                       docs?.sort((a, b) {
                         final da = (a.data() as Map).cast<String, dynamic>();
                         final db = (b.data() as Map).cast<String, dynamic>();
-                        final ta = (da['created_at'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
-                        final tb = (db['created_at'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
+                        final ta =
+                            (da['created_at'] as Timestamp?)
+                                ?.millisecondsSinceEpoch ??
+                            0;
+                        final tb =
+                            (db['created_at'] as Timestamp?)
+                                ?.millisecondsSinceEpoch ??
+                            0;
                         return tb.compareTo(ta);
                       });
                       if (docs == null) return const SizedBox.shrink();
@@ -48,10 +54,14 @@ class StudentsPage extends StatelessWidget {
                       }
                       return Column(
                         children: docs.map((d) {
-                          final data = (d.data() as Map).cast<String, dynamic>();
-                          final studentId = (data['student_id'] ?? d.id).toString();
-                          final studentName = (data['student_name'] ?? '').toString();
-                          final parentName = (data['parent_name'] ?? '').toString();
+                          final data = (d.data() as Map)
+                              .cast<String, dynamic>();
+                          final studentId = (data['student_id'] ?? d.id)
+                              .toString();
+                          final studentName = (data['student_name'] ?? '')
+                              .toString();
+                          final parentName = (data['parent_name'] ?? '')
+                              .toString();
 
                           return Card(
                             child: Padding(
@@ -59,11 +69,21 @@ class StudentsPage extends StatelessWidget {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(studentName.isEmpty ? studentId : '$studentName ($studentId)'),
+                                  Text(
+                                    studentName.isEmpty
+                                        ? studentId
+                                        : '$studentName ($studentId)',
+                                  ),
                                   if (parentName.isNotEmpty)
                                     Padding(
                                       padding: const EdgeInsets.only(top: 4),
-                                      child: Text('Parent: $parentName', style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                                      child: Text(
+                                        'Parent: $parentName',
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.black54,
+                                        ),
+                                      ),
                                     ),
                                   const SizedBox(height: 8),
                                   Row(
@@ -71,10 +91,19 @@ class StudentsPage extends StatelessWidget {
                                       Expanded(
                                         child: OutlinedButton(
                                           onPressed: () async {
-                                            await studentService.rejectRequest(driverId: driverId, requestId: d.id);
+                                            await studentService.rejectRequest(
+                                              driverId: driverId,
+                                              requestId: d.id,
+                                            );
                                             if (context.mounted) {
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                const SnackBar(content: Text('Request rejected. Refund should be handled by backend.')),
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                const SnackBar(
+                                                  content: Text(
+                                                    'Request rejected. Refund should be handled by backend.',
+                                                  ),
+                                                ),
                                               );
                                             }
                                           },
@@ -85,10 +114,19 @@ class StudentsPage extends StatelessWidget {
                                       Expanded(
                                         child: ElevatedButton(
                                           onPressed: () async {
-                                            await studentService.approveRequest(driverId: driverId, requestId: d.id);
+                                            await studentService.approveRequest(
+                                              driverId: driverId,
+                                              requestId: d.id,
+                                            );
                                             if (context.mounted) {
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                const SnackBar(content: Text('Request approved.')),
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                const SnackBar(
+                                                  content: Text(
+                                                    'Request approved.',
+                                                  ),
+                                                ),
                                               );
                                             }
                                           },
@@ -107,7 +145,10 @@ class StudentsPage extends StatelessWidget {
                   ),
 
                   const SizedBox(height: 16),
-                  Text('Students Under Service', style: Theme.of(context).textTheme.titleMedium),
+                  Text(
+                    'Students Under Service',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                   const SizedBox(height: 8),
                   StreamBuilder(
                     stream: studentService.streamApprovedStudents(driverId),
@@ -120,17 +161,44 @@ class StudentsPage extends StatelessWidget {
 
                       return Column(
                         children: docs.map((d) {
-                          final data = (d.data() as Map).cast<String, dynamic>();
+                          final data = (d.data() as Map)
+                              .cast<String, dynamic>();
                           final studentId = d.id;
-                          final studentName = (data['student_name'] ?? '').toString();
-                          final parentName = (data['parent_name'] ?? '').toString();
-                          final parentPhone = (data['parent_phone'] ?? '').toString();
+                          final studentName = (data['student_name'] ?? '')
+                              .toString();
+                          final parentName = (data['parent_name'] ?? '')
+                              .toString();
+                          final parentPhone = (data['parent_phone'] ?? '')
+                              .toString();
+                          final schoolName = (data['school_name'] ?? '')
+                              .toString();
 
                           return Card(
                             child: ListTile(
-                              title: Text(studentName.isEmpty ? studentId : '$studentName ($studentId)'),
-                              subtitle: Text(
-                                parentName.isNotEmpty ? 'Parent: $parentName' : (parentPhone.isNotEmpty ? 'Parent: $parentPhone' : ''),
+                              title: Text(
+                                studentName.isEmpty
+                                    ? studentId
+                                    : '$studentName ($studentId)',
+                              ),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (parentName.isNotEmpty ||
+                                      parentPhone.isNotEmpty)
+                                    Text(
+                                      parentName.isNotEmpty
+                                          ? 'Parent: $parentName'
+                                          : 'Parent: $parentPhone',
+                                    ),
+                                  if (schoolName.isNotEmpty)
+                                    Text(
+                                      'School: $schoolName',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                ],
                               ),
                               trailing: parentPhone.isEmpty
                                   ? null
@@ -138,11 +206,19 @@ class StudentsPage extends StatelessWidget {
                                       tooltip: 'Call parent',
                                       icon: const Icon(Icons.call),
                                       onPressed: () async {
-                                        final uri = Uri.parse('tel:$parentPhone');
+                                        final uri = Uri.parse(
+                                          'tel:$parentPhone',
+                                        );
                                         if (!await launchUrl(uri)) {
                                           if (context.mounted) {
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              const SnackBar(content: Text('Could not launch phone dialer.')),
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              const SnackBar(
+                                                content: Text(
+                                                  'Could not launch phone dialer.',
+                                                ),
+                                              ),
                                             );
                                           }
                                         }

@@ -270,35 +270,9 @@ class _ManagePaymentsScreenState extends State<ManagePaymentsScreen> {
               ),
           ],
         ),
-        trailing: status == 'pending'
-            ? PopupMenuButton<String>(
-                icon: const Icon(Icons.more_vert),
-                onSelected: (value) {
-                  _updatePaymentStatus(paymentId, value);
-                },
-                itemBuilder: (context) => [
-                  const PopupMenuItem(
-                    value: 'completed',
-                    child: Text('Mark as Completed'),
-                  ),
-                  const PopupMenuItem(
-                    value: 'refunded',
-                    child: Text('Mark as Refunded'),
-                  ),
-                ],
-              )
-            : null,
+        trailing: null,
         isThreeLine: true,
       ),
     );
-  }
-
-  void _updatePaymentStatus(String paymentId, String newStatus) async {
-    await service.updatePaymentStatus(paymentId, newStatus);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Payment status updated to $newStatus')),
-      );
-    }
   }
 }

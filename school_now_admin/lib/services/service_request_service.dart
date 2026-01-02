@@ -105,68 +105,88 @@ class ServiceRequestService {
         final parents = _db.collection('parents');
         final payments = _db.collection('payments');
 
-        // Enforce: 1 student = max 1 driver.
-        if (parentId.isNotEmpty) {
-          final childRef = parents
-              .doc(parentId)
-              .collection('children')
-              .doc(studentId);
-          final childSnap = await tx.get(childRef);
-          final child = childSnap.data();
-          final assigned = (child?['assigned_driver_id'] ?? '').toString();
-          if (assigned.isNotEmpty && assigned != driverId) {
-            // Already assigned to someone else. Reject + refund.
-            tx.set(requestRef, {
-              'status': 'rejected',
-              'updated_at': FieldValue.serverTimestamp(),
-              'reason': 'already_assigned',
-            }, SetOptions(merge: true));
-            if (paymentId.isNotEmpty) {
-              tx.set(payments.doc(paymentId), {
-                'status': 'refunded',
+        if (status == 'approved') {
+          // Enforce: 1 student = max 1 driver.
+          Map<String, dynamic>? child;
+          if (parentId.isNotEmpty) {
+            final childRef = parents
+                .doc(parentId)
+                .collection('children')
+                .doc(studentId);
+            final childSnap = await tx.get(childRef);
+            child = childSnap.data();
+            final assigned = (child?['assigned_driver_id'] ?? '').toString();
+            if (assigned.isNotEmpty && assigned != driverId) {
+              // Already assigned to someone else. Reject + refund.
+              tx.set(requestRef, {
+                'status': 'rejected',
                 'updated_at': FieldValue.serverTimestamp(),
+                'reason': 'already_assigned',
               }, SetOptions(merge: true));
+              if (paymentId.isNotEmpty) {
+                tx.set(payments.doc(paymentId), {
+                  'status': 'refunded',
+                  'updated_at': FieldValue.serverTimestamp(),
+                }, SetOptions(merge: true));
+              }
+              return;
             }
-            return;
+
+            // Assign child to this driver (merge to avoid overwriting other fields)
+            tx.set(childRef, {
+              'assigned_driver_id': driverId,
+              'updated_at': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
           }
 
-          // Assign child to this driver (merge to avoid overwriting other fields)
-          tx.set(childRef, {
-            'assigned_driver_id': driverId,
-            'updated_at': FieldValue.serverTimestamp(),
+          // Sync to driver's students collection (read-only cache)
+          final driverStudentRef = _db
+              .collection('drivers')
+              .doc(driverId)
+              .collection('students')
+              .doc(studentId);
+
+          // Get the child data to sync to driver collection
+          final childData = child ?? {};
+
+          tx.set(driverStudentRef, {
+            'child_id': studentId,
+            'parent_id': parentId,
+            'child_name': childData['child_name'] ?? '',
+            'school_name': childData['school_name'] ?? '',
+            'school_id': childData['school_id'] ?? '',
+            'pickup_location': requestData['pickup_location'] ?? '',
+            'contact_number':
+                requestData['parent_phone'] ??
+                requestData['contact_number'] ??
+                '',
+            'attendance_override': 'attending',
+            'attendance_date_ymd': '',
+            'created_at': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
+
+          // Complete payment if present
+          if (paymentId.isNotEmpty) {
+            tx.set(payments.doc(paymentId), {
+              'status': 'completed',
+              'updated_at': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
+          }
+        } else if (status == 'rejected') {
+          // Refund payment if present
+          if (paymentId.isNotEmpty) {
+            tx.set(payments.doc(paymentId), {
+              'status': 'refunded',
+              'updated_at': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
+          }
         }
 
-        // Add student to driver's students collection
-        final studentsRef = _db
-            .collection('drivers')
-            .doc(driverId)
-            .collection('students')
-            .doc(studentId);
-        tx.set(studentsRef, {
-          'student_name': requestData['student_name'] ?? '',
-          'parent_name': requestData['parent_name'] ?? '',
-          'contact_number': requestData['contact_number'] ?? '',
-          'parent_id': parentId,
-          'pickup_location': requestData['pickup_location'] ?? '',
-          'attendance_override': 'attending',
-          'attendance_date_ymd': '',
-          'created_at': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-
-        // Mark request as approved
+        // Mark request as approved or rejected
         tx.set(requestRef, {
           'status': status,
           'updated_at': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
-
-        // Complete payment if present
-        if (paymentId.isNotEmpty) {
-          tx.set(payments.doc(paymentId), {
-            'status': 'completed',
-            'updated_at': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
-        }
       });
     } catch (e, stackTrace) {
       debugPrint('Error updating request status: $e');

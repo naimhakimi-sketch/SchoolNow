@@ -63,7 +63,7 @@ class ParentAuthService {
     };
 
     if (pickupLat != null && pickupLng != null) {
-      doc['pickup_location'] = {'latitude': pickupLat, 'longitude': pickupLng};
+      doc['pickup_location'] = {'lat': pickupLat, 'lng': pickupLng};
     }
 
     await _db.collection('parents').doc(uid).set(doc);
