@@ -568,6 +568,9 @@ class _DrivePageState extends State<DrivePage> {
     LatLng? currentPosition,
   }) {
     final home = _driverHome(driverData);
+    debugPrint(
+      'Drive._buildRoutePolyline: routeType=$routeType passengers=${passengers.length} studentDocs=${studentById.length} driverKeys=${driverData?.keys.toList()}',
+    );
 
     // Prefer explicit currentPosition (route start), then live GPS, then home,
     // then first available pickup point as a graceful fallback.
@@ -585,6 +588,9 @@ class _DrivePageState extends State<DrivePage> {
 
     final start =
         currentPosition ?? _currentLocation ?? home ?? fallbackFirstStop;
+    debugPrint(
+      'Drive._buildRoutePolyline: fallbackFirstStop=$fallbackFirstStop start=$start currentPosition=$currentPosition _currentLocation=$_currentLocation home=$home',
+    );
     if (start == null) return const [];
     final LatLng startNonNull = start;
 
@@ -611,7 +617,8 @@ class _DrivePageState extends State<DrivePage> {
       if (schoolId.isEmpty) continue;
 
       final status = statusOf(studentId);
-      final isActive = status != BoardingStatus.absent;
+      final isActive =
+          status != BoardingStatus.absent && status != BoardingStatus.alighted;
 
       if (isActive) {
         schoolsWithActiveStudents
@@ -639,6 +646,9 @@ class _DrivePageState extends State<DrivePage> {
           pendingPickups.add({'student_id': studentId, 'point': pickup});
         }
       }
+      debugPrint(
+        'Drive._buildRoutePolyline: pendingPickups=${pendingPickups.length} ids=${pendingPickups.map((e) => e['student_id']).toList()}',
+      );
 
       // Add schools that have active students
       for (final schoolId in schoolsWithActiveStudents.keys) {
@@ -654,6 +664,9 @@ class _DrivePageState extends State<DrivePage> {
               origin: startNonNull,
               stops: pendingPickups,
             );
+      debugPrint(
+        'Drive._buildRoutePolyline: orderedPickups=${orderedPickups.length}',
+      );
 
       final orderedSchools = schoolStops.isEmpty
           ? const <Map<String, dynamic>>[]
@@ -742,6 +755,9 @@ class _DrivePageState extends State<DrivePage> {
           remainingDropoffs.add({'student_id': studentId, 'point': dropoff});
         }
       }
+      debugPrint(
+        'Drive._buildRoutePolyline: remainingDropoffs=${remainingDropoffs.length}',
+      );
 
       final orderedSchools = schoolStops.isEmpty
           ? const <Map<String, dynamic>>[]
@@ -758,6 +774,9 @@ class _DrivePageState extends State<DrivePage> {
                   : startNonNull,
               stops: remainingDropoffs,
             );
+      debugPrint(
+        'Drive._buildRoutePolyline: orderedDropoffs=${orderedDropoffs.length}',
+      );
 
       return [
         startNonNull,
@@ -856,6 +875,7 @@ class _DrivePageState extends State<DrivePage> {
   }
 
   Widget _buildFullScreenMap({
+    required String? tripId,
     required Map<String, dynamic>? driverData,
     required String routeType,
     required List<Map<String, dynamic>> passengers,
@@ -934,8 +954,78 @@ class _DrivePageState extends State<DrivePage> {
           width: 44,
           height: 44,
           child: GestureDetector(
-            onTap: () {
+            onTap: () async {
               _mapController.move(point, 16);
+              // Only show arrive action when on an active trip and morning route
+              if (tripId == null) return;
+              final isMorning = routeType == 'morning';
+              if (!isMorning) return;
+
+              // Compute student ids for this school that are part of the trip
+              final passengerIds = passengers
+                  .map((e) => (e['student_id'] ?? '').toString())
+                  .where((id) => id.isNotEmpty)
+                  .toSet();
+              final ids = studentById.entries
+                  .where((e) => (e.value['school_id'] ?? '').toString() == sid)
+                  .map((e) => e.key)
+                  .where((id) => passengerIds.contains(id))
+                  .toList();
+              if (ids.isEmpty) return;
+
+              final confirmed = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: Text(
+                    name.isNotEmpty ? 'Arrive at $name' : 'Arrive at school',
+                  ),
+                  content: Text(
+                    'Mark ${ids.length} student(s) from this school as Arrived (School)?',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(false),
+                      child: const Text('Cancel'),
+                    ),
+                    ElevatedButton(
+                      onPressed: () => Navigator.of(ctx).pop(true),
+                      child: const Text('Arrive'),
+                    ),
+                  ],
+                ),
+              );
+
+              if (confirmed != true) return;
+
+              setState(() {
+                _loadingAction = true;
+                _error = null;
+              });
+              try {
+                await _tripService.markStudentsArrivedAtSchool(tripId, ids);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Marked ${ids.length} student(s) arrived at ${name.isNotEmpty ? name : 'school'}',
+                      ),
+                    ),
+                  );
+                }
+              } catch (e) {
+                setState(() {
+                  _error = 'Failed to mark arrived: $e';
+                });
+              } finally {
+                if (mounted) {
+                  setState(() {
+                    _loadingAction = false;
+                    // clear cached route so it's recomputed from updated trip state
+                    _routedPolyline = null;
+                    _routedKey = null;
+                  });
+                }
+              }
             },
             child: Tooltip(
               message: name.isNotEmpty ? name : 'School',
@@ -1295,6 +1385,7 @@ class _DrivePageState extends State<DrivePage> {
                         children: [
                           // Full screen map
                           _buildFullScreenMap(
+                            tripId: tripId,
                             driverData: driverData,
                             routeType: tripId == null
                                 ? _selectedRouteType

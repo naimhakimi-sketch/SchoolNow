@@ -25,8 +25,12 @@ class TripService {
   ///
   /// Uses `drivers/<driverId>.active_trip_id` as a pointer so we avoid
   /// composite index requirements.
-  Stream<DocumentSnapshot<Map<String, dynamic>>?> streamActiveTripForDriver(String driverId) {
-    return _db.collection('drivers').doc(driverId).snapshots().asyncExpand((driverSnap) {
+  Stream<DocumentSnapshot<Map<String, dynamic>>?> streamActiveTripForDriver(
+    String driverId,
+  ) {
+    return _db.collection('drivers').doc(driverId).snapshots().asyncExpand((
+      driverSnap,
+    ) {
       final tripId = (driverSnap.data()?['active_trip_id'] ?? '').toString();
       if (tripId.isEmpty) {
         return Stream.value(null);
@@ -53,24 +57,25 @@ class TripService {
       routeId: routeId,
       routeType: routeType,
       status: TripStatus.planned,
-      passengers: studentIds.map((id) => TripPassenger(
-        studentId: id,
-        status: BoardingStatus.notBoarded,
-        updatedAt: DateTime.now(),
-      )).toList(),
+      passengers: studentIds
+          .map(
+            (id) => TripPassenger(
+              studentId: id,
+              status: BoardingStatus.notBoarded,
+              updatedAt: DateTime.now(),
+            ),
+          )
+          .toList(),
       liveLocationPath: liveLocationPath,
     );
 
     await tripRef.set(trip.toJson());
 
-    await _db.collection('drivers').doc(driverId).set(
-      {
-        'active_trip_id': tripId,
-        'active_trip_status': 'planned',
-        'active_trip_updated_at': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    await _db.collection('drivers').doc(driverId).set({
+      'active_trip_id': tripId,
+      'active_trip_status': 'planned',
+      'active_trip_updated_at': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
     return tripId;
   }
 
@@ -86,24 +91,25 @@ class TripService {
       });
 
       if (driverId.isNotEmpty) {
-        tx.set(
-          _db.collection('drivers').doc(driverId),
-          {
-            'active_trip_id': tripId,
-            'active_trip_status': 'in_progress',
-            'active_trip_updated_at': FieldValue.serverTimestamp(),
-          },
-          SetOptions(merge: true),
-        );
+        tx.set(_db.collection('drivers').doc(driverId), {
+          'active_trip_id': tripId,
+          'active_trip_status': 'in_progress',
+          'active_trip_updated_at': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
       }
     });
   }
 
-  Future<void> updatePassengerStatus(String tripId, String studentId, BoardingStatus status) async {
+  Future<void> updatePassengerStatus(
+    String tripId,
+    String studentId,
+    BoardingStatus status,
+  ) async {
     final trip = await _db.collection('trips').doc(tripId).get();
     final data = trip.data() as Map<String, dynamic>;
-    final passengers = (data['passengers'] as List?)?.cast<Map<String, dynamic>>() ?? [];
-    
+    final passengers =
+        (data['passengers'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+
     final updated = passengers.map((p) {
       if (p['student_id'] == studentId) {
         return {
@@ -119,16 +125,26 @@ class TripService {
 
     // Best-effort RTDB mirror.
     try {
-      await _setBoardingStatusRtdb(tripId: tripId, studentId: studentId, status: status);
+      await _setBoardingStatusRtdb(
+        tripId: tripId,
+        studentId: studentId,
+        status: status,
+      );
     } catch (_) {}
   }
 
-  Future<void> upsertPassengerStatus(String tripId, String studentId, BoardingStatus status) async {
+  Future<void> upsertPassengerStatus(
+    String tripId,
+    String studentId,
+    BoardingStatus status,
+  ) async {
     final ref = _db.collection('trips').doc(tripId);
     await _db.runTransaction((tx) async {
       final snap = await tx.get(ref);
       final data = snap.data() ?? <String, dynamic>{};
-      final passengers = (data['passengers'] as List?)?.cast<Map<String, dynamic>>() ?? <Map<String, dynamic>>[];
+      final passengers =
+          (data['passengers'] as List?)?.cast<Map<String, dynamic>>() ??
+          <Map<String, dynamic>>[];
       final nowMs = DateTime.now().millisecondsSinceEpoch;
 
       bool updatedExisting = false;
@@ -157,7 +173,11 @@ class TripService {
 
     // Best-effort RTDB mirror.
     try {
-      await _setBoardingStatusRtdb(tripId: tripId, studentId: studentId, status: status);
+      await _setBoardingStatusRtdb(
+        tripId: tripId,
+        studentId: studentId,
+        status: status,
+      );
     } catch (_) {}
   }
 
@@ -173,15 +193,11 @@ class TripService {
       });
 
       if (driverId.isNotEmpty) {
-        tx.set(
-          _db.collection('drivers').doc(driverId),
-          {
-            'active_trip_id': FieldValue.delete(),
-            'active_trip_status': FieldValue.delete(),
-            'active_trip_updated_at': FieldValue.serverTimestamp(),
-          },
-          SetOptions(merge: true),
-        );
+        tx.set(_db.collection('drivers').doc(driverId), {
+          'active_trip_id': FieldValue.delete(),
+          'active_trip_status': FieldValue.delete(),
+          'active_trip_updated_at': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
       }
     });
   }
@@ -195,11 +211,15 @@ class TripService {
     await _db.runTransaction((tx) async {
       final snap = await tx.get(ref);
       final data = snap.data() ?? <String, dynamic>{};
-      final passengers = (data['passengers'] as List?)?.cast<Map<String, dynamic>>() ?? <Map<String, dynamic>>[];
+      final passengers =
+          (data['passengers'] as List?)?.cast<Map<String, dynamic>>() ??
+          <Map<String, dynamic>>[];
 
       final nowMs = DateTime.now().millisecondsSinceEpoch;
       final updatedPassengers = passengers.map((p) {
-        final status = BoardingStatusCodec.fromJson((p['status'] ?? 'not_boarded').toString());
+        final status = BoardingStatusCodec.fromJson(
+          (p['status'] ?? 'not_boarded').toString(),
+        );
         if (status == BoardingStatus.absent) {
           return p;
         }
@@ -223,7 +243,63 @@ class TripService {
     // Best-effort RTDB mirror for all.
     for (final e in toMirror) {
       try {
-        await _setBoardingStatusRtdb(tripId: tripId, studentId: e.studentId, status: e.status);
+        await _setBoardingStatusRtdb(
+          tripId: tripId,
+          studentId: e.studentId,
+          status: e.status,
+        );
+      } catch (_) {}
+    }
+  }
+
+  /// Marks the provided students as arrived at school (morning flow) for a given trip.
+  ///
+  /// Only updates students whose current status is not `absent`.
+  Future<void> markStudentsArrivedAtSchool(
+    String tripId,
+    List<String> studentIds,
+  ) async {
+    if (studentIds.isEmpty) return;
+    final ref = _db.collection('trips').doc(tripId);
+    final toMirror = <({String studentId, BoardingStatus status})>[];
+
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      final data = snap.data() ?? <String, dynamic>{};
+      final passengers =
+          (data['passengers'] as List?)?.cast<Map<String, dynamic>>() ??
+          <Map<String, dynamic>>[];
+
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      final updatedPassengers = passengers.map((p) {
+        final studentId = (p['student_id'] ?? '').toString();
+        if (!studentIds.contains(studentId)) return p;
+        final status = BoardingStatusCodec.fromJson(
+          (p['status'] ?? 'not_boarded').toString(),
+        );
+        if (status == BoardingStatus.absent) return p;
+        toMirror.add((studentId: studentId, status: BoardingStatus.alighted));
+        return {
+          ...p,
+          'status': BoardingStatusCodec.toJson(BoardingStatus.alighted),
+          'updated_at': nowMs,
+        };
+      }).toList();
+
+      tx.update(ref, {
+        'passengers': updatedPassengers,
+        'arrival_school_time_ms': nowMs,
+      });
+    });
+
+    // Best-effort RTDB mirror for updated students.
+    for (final e in toMirror) {
+      try {
+        await _setBoardingStatusRtdb(
+          tripId: tripId,
+          studentId: e.studentId,
+          status: e.status,
+        );
       } catch (_) {}
     }
   }

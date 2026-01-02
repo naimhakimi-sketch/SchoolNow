@@ -62,6 +62,10 @@ class _MonitorPageState extends State<MonitorPage> {
   final _mapController = MapController();
   final _routingService = OsrmRoutingService();
 
+  final Map<String, LatLng> _schoolLocations = {};
+  final Map<String, String> _schoolTypes = {};
+  final Map<String, String> _schoolNames = {};
+
   String? _routedKey;
   List<LatLng>? _routedPolyline;
   bool _routingInFlight = false;
@@ -91,6 +95,171 @@ class _MonitorPageState extends State<MonitorPage> {
         ),
       );
     }
+    return markers;
+  }
+
+  List<Marker> _buildSchoolMarkers({
+    required String? tripId,
+    required String routeType,
+    required List<Map<String, dynamic>> passengers,
+    required Map<String, Map<String, dynamic>> studentById,
+    required Set<String> seenKeys,
+  }) {
+    final markers = <Marker>[];
+    final isMorning = routeType == 'morning';
+
+    for (final entry in _schoolLocations.entries) {
+      final sid = entry.key;
+      final point = entry.value;
+      final type = _schoolTypes[sid] ?? 'primary';
+      final name = _schoolNames[sid] ?? '';
+
+      Color color;
+      switch (type) {
+        case 'secondary':
+          color = Colors.green;
+          break;
+        case 'primary':
+        default:
+          color = Colors.blue;
+      }
+
+      // Check if there are any students from this school that are not yet arrived
+      final passengerIds = passengers
+          .map((e) => (e['student_id'] ?? '').toString())
+          .where((id) => id.isNotEmpty)
+          .toSet();
+      final schoolStudentIds = studentById.entries
+          .where((e) => (e.value['school_id'] ?? '').toString() == sid)
+          .map((e) => e.key)
+          .where((id) => passengerIds.contains(id))
+          .toList();
+
+      // Filter to only those not yet arrived
+      final remainingStudents = schoolStudentIds.where((id) {
+        final p = passengers.firstWhere(
+          (x) => (x['student_id'] ?? '').toString() == id,
+          orElse: () => const <String, dynamic>{},
+        );
+        final status = BoardingStatusCodec.fromJson(
+          (p['status'] ?? 'not_boarded').toString(),
+        );
+        // Show school if students are not arrived and not absent
+        return status != BoardingStatus.alighted &&
+            status != BoardingStatus.absent;
+      }).toList();
+
+      // Skip this school if no remaining students
+      if (remainingStudents.isEmpty) continue;
+
+      final key = _pointKey(point);
+      if (!seenKeys.add(key)) continue;
+
+      markers.add(
+        Marker(
+          point: point,
+          width: 44,
+          height: 44,
+          child: GestureDetector(
+            onTap: () async {
+              _mapController.move(point, 16);
+              if (tripId == null || !isMorning) return;
+
+              // Use the already-filtered remainingStudents list
+              if (remainingStudents.isEmpty) return;
+
+              final confirmed = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: Text(
+                    name.isNotEmpty ? 'Arrive at $name' : 'Arrive at school',
+                  ),
+                  content: Text(
+                    'Mark ${remainingStudents.length} student(s) from this school as Arrived (School)?',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(false),
+                      child: const Text('Cancel'),
+                    ),
+                    ElevatedButton(
+                      onPressed: () => Navigator.of(ctx).pop(true),
+                      child: const Text('Arrive'),
+                    ),
+                  ],
+                ),
+              );
+
+              if (confirmed != true) return;
+
+              setState(() {
+                _routingInFlight = true;
+              });
+              try {
+                final tripDoc = await FirebaseFirestore.instance
+                    .collection('trips')
+                    .doc(tripId)
+                    .get();
+                final data = tripDoc.data() ?? <String, dynamic>{};
+                final currentPassengers =
+                    (data['passengers'] as List?)
+                        ?.cast<Map<String, dynamic>>() ??
+                    const <Map<String, dynamic>>[];
+
+                final nowMs = DateTime.now().millisecondsSinceEpoch;
+                final updatedPassengers = currentPassengers.map((p) {
+                  final studentId = (p['student_id'] ?? '').toString();
+                  if (!remainingStudents.contains(studentId)) return p;
+                  final status = BoardingStatusCodec.fromJson(
+                    (p['status'] ?? 'not_boarded').toString(),
+                  );
+                  if (status == BoardingStatus.absent) return p;
+                  return {
+                    ...p,
+                    'status': BoardingStatusCodec.toJson(
+                      BoardingStatus.alighted,
+                    ),
+                    'updated_at': nowMs,
+                  };
+                }).toList();
+
+                await FirebaseFirestore.instance
+                    .collection('trips')
+                    .doc(tripId)
+                    .update({'passengers': updatedPassengers});
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Marked ${remainingStudents.length} student(s) arrived at ${name.isNotEmpty ? name : 'school'}',
+                      ),
+                    ),
+                  );
+                }
+              } catch (e) {
+                debugPrint(
+                  'Monitor: error marking students arrived at school: $e',
+                );
+              } finally {
+                if (mounted) {
+                  setState(() {
+                    _routingInFlight = false;
+                    _routedPolyline = null;
+                    _routedKey = null;
+                  });
+                }
+              }
+            },
+            child: Tooltip(
+              message: name.isNotEmpty ? name : 'School',
+              child: Icon(Icons.school, color: color, size: 36),
+            ),
+          ),
+        ),
+      );
+    }
+
     return markers;
   }
 
@@ -199,6 +368,9 @@ class _MonitorPageState extends State<MonitorPage> {
   void _ensureRoutedPolyline(String routeType, List<LatLng> stops) {
     if (stops.length < 2) return;
     final key = _makeRouteKey(routeType, stops);
+    debugPrint(
+      'Monitor._ensureRoutedPolyline: routeType=$routeType stops=${stops.length} key=$key',
+    );
     if (_routedKey == key) return;
     if (_routingInFlight) return;
 
@@ -210,14 +382,28 @@ class _MonitorPageState extends State<MonitorPage> {
         .routeDrivingWithSteps(stops, includeSteps: false)
         .then((route) {
           if (!mounted) return;
+          final routed = route?.geometry ?? const <LatLng>[];
+          final ok = routed.length >= 2;
+          if (ok) {
+            final first = routed.first;
+            final last = routed.last;
+            debugPrint(
+              'Monitor._ensureRoutedPolyline: got route geometry length=${routed.length} ok=$ok first=${first.latitude.toStringAsFixed(6)},${first.longitude.toStringAsFixed(6)} last=${last.latitude.toStringAsFixed(6)},${last.longitude.toStringAsFixed(6)} for key=$key',
+            );
+          } else {
+            debugPrint(
+              'Monitor._ensureRoutedPolyline: got route geometry length=${routed.length} ok=$ok for key=$key',
+            );
+          }
           setState(() {
             _routedKey = key;
-            final routed = route?.geometry ?? const <LatLng>[];
-            final ok = routed.length >= 2;
             _routedPolyline = ok ? routed : null;
           });
         })
-        .catchError((_) {
+        .catchError((e) {
+          debugPrint(
+            'Monitor._ensureRoutedPolyline: routing error for key=$key error=$e',
+          );
           if (!mounted) return;
           setState(() {
             _routedKey = key;
@@ -233,15 +419,6 @@ class _MonitorPageState extends State<MonitorPage> {
     final home = (driverData?['home_location'] as Map?)
         ?.cast<String, dynamic>();
     return MonitorPage._latLngFromMap(home);
-  }
-
-  LatLng? _schoolPoint(Map<String, dynamic>? driverData) {
-    final serviceArea = (driverData?['service_area'] as Map?)
-        ?.cast<String, dynamic>();
-    final lat = (serviceArea?['school_lat'] as num?)?.toDouble();
-    final lng = (serviceArea?['school_lng'] as num?)?.toDouble();
-    if (lat == null || lng == null) return null;
-    return LatLng(lat, lng);
   }
 
   List<Map<String, dynamic>> _sortStopsByNearestNeighbor({
@@ -267,6 +444,89 @@ class _MonitorPageState extends State<MonitorPage> {
     return ordered;
   }
 
+  Future<void> _ensureSchoolLocations(
+    Map<String, Map<String, dynamic>> studentById,
+  ) async {
+    final schoolIds = studentById.values
+        .map((s) => (s['school_id'] ?? '').toString())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+
+    final missing = schoolIds
+        .where((id) => !_schoolTypes.containsKey(id))
+        .toList();
+    if (missing.isEmpty) return;
+
+    for (final schoolId in missing) {
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('schools')
+            .doc(schoolId)
+            .get();
+        if (!doc.exists) continue;
+        final data = doc.data();
+        final geo = data?['geo_location'] as Map?;
+        final schoolType = (data?['type'] ?? 'primary')
+            .toString()
+            .toLowerCase();
+        final schoolName = (data?['name'] ?? '').toString();
+        if (geo != null) {
+          final lat = (geo['lat'] as num?)?.toDouble();
+          final lng = (geo['lng'] as num?)?.toDouble();
+          if (lat != null && lng != null) {
+            setState(() {
+              _schoolLocations[schoolId] = LatLng(lat, lng);
+              _schoolTypes[schoolId] = schoolType;
+              _schoolNames[schoolId] = schoolName;
+            });
+          }
+        }
+      } catch (e) {
+        debugPrint('Monitor: error loading school $schoolId: $e');
+      }
+    }
+  }
+
+  LatLng? _getSchoolLocation(String schoolId) {
+    return _schoolLocations[schoolId];
+  }
+
+  /// Eagerly fetch school types for filtering (blocking) to mirror the driver logic.
+  Future<void> _ensureSchoolTypesLoaded(
+    Map<String, Map<String, dynamic>> studentById,
+  ) async {
+    final schoolIds = studentById.values
+        .map((student) => (student['school_id'] ?? '').toString())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+
+    final missingSchoolIds = schoolIds
+        .where((id) => !_schoolTypes.containsKey(id))
+        .toList();
+
+    if (missingSchoolIds.isEmpty) return;
+
+    try {
+      final batch = await FirebaseFirestore.instance
+          .collection('schools')
+          .where(FieldPath.documentId, whereIn: missingSchoolIds)
+          .get();
+
+      for (final doc in batch.docs) {
+        final schoolType = (doc.data()['type'] ?? 'primary')
+            .toString()
+            .toLowerCase();
+        _schoolTypes[doc.id] = schoolType;
+      }
+    } catch (e) {
+      debugPrint('Monitor: error loading school types: $e');
+    }
+  }
+
+  LatLng? _getCachedOperatorLocation() {
+    return null;
+  }
+
   List<LatLng> _buildRoutePolylineStops({
     required String routeType,
     required Map<String, dynamic>? driverData,
@@ -275,8 +535,29 @@ class _MonitorPageState extends State<MonitorPage> {
     required Map<String, Map<String, dynamic>> studentById,
   }) {
     final home = _driverHome(driverData);
-    final school = _schoolPoint(driverData);
-    if (home == null || school == null) return const [];
+    debugPrint(
+      'Monitor._buildRoutePolylineStops: routeType=$routeType passengers=${passengers.length} studentDocs=${studentById.length} driverKeys=${driverData?.keys.toList()}',
+    );
+
+    // Fallback first pickup
+    LatLng? fallbackFirstStop;
+    for (final studentId in studentById.keys) {
+      final studentData = studentById[studentId]!;
+      final loc = (studentData['pickup_location'] as Map?)
+          ?.cast<String, dynamic>();
+      final p = MonitorPage._latLngFromMap(loc);
+      if (p != null) {
+        fallbackFirstStop = p;
+        break;
+      }
+    }
+
+    final start = driverLivePoint ?? fallbackFirstStop ?? home;
+    debugPrint(
+      'Monitor._buildRoutePolylineStops: fallbackFirstStop=$fallbackFirstStop start=$start driverLivePoint=$driverLivePoint home=$home',
+    );
+    if (start == null) return const [];
+    final LatLng startNonNull = start;
 
     BoardingStatus statusOf(String studentId) {
       final p = passengers.firstWhere(
@@ -294,62 +575,162 @@ class _MonitorPageState extends State<MonitorPage> {
       return MonitorPage._latLngFromMap(loc);
     }
 
-    final isAfternoon = _isAfternoonRoute(routeType);
+    final schoolsWithActiveStudents = <String, List<String>>{};
+    for (final studentId in studentById.keys) {
+      final studentData = studentById[studentId]!;
+      final schoolId = (studentData['school_id'] ?? '').toString();
+      if (schoolId.isEmpty) continue;
 
-    // For the Monitor map, we want the route to reflect what the driver is
-    // actually doing right now, so use the live point as the route start when
-    // available.
-    final routeStart = driverLivePoint ?? (isAfternoon ? school : home);
-    final passengerIds = passengers
-        .map((e) => (e['student_id'] ?? '').toString())
-        .where((id) => id.isNotEmpty)
-        .toSet();
-    final studentIds = studentById.keys.where(passengerIds.contains).toList();
+      final status = statusOf(studentId);
+      final isActive =
+          status != BoardingStatus.absent && status != BoardingStatus.alighted;
+
+      if (isActive) {
+        schoolsWithActiveStudents
+            .putIfAbsent(schoolId, () => [])
+            .add(studentId);
+      }
+    }
+
+    final isAfternoon = _isAfternoonRoute(routeType);
 
     if (!isAfternoon) {
       final pendingPickups = <Map<String, dynamic>>[];
-      for (final id in studentIds) {
-        final s = statusOf(id);
-        if (s == BoardingStatus.boarded ||
-            s == BoardingStatus.absent ||
-            s == BoardingStatus.alighted) {
+      final schoolStops = <Map<String, dynamic>>[];
+
+      for (final studentId in studentById.keys) {
+        final status = statusOf(studentId);
+        if (status == BoardingStatus.boarded ||
+            status == BoardingStatus.absent ||
+            status == BoardingStatus.alighted) {
           continue;
         }
-        final p = pickupOf(id);
-        if (p != null) {
-          pendingPickups.add({'student_id': id, 'point': p});
+        final pickup = pickupOf(studentId);
+        if (pickup != null) {
+          pendingPickups.add({'student_id': studentId, 'point': pickup});
         }
       }
-      final ordered = pendingPickups.isEmpty
+
+      // Add schools that have active students
+      for (final schoolId in schoolsWithActiveStudents.keys) {
+        final schoolLocation = _getSchoolLocation(schoolId);
+        if (schoolLocation != null) {
+          schoolStops.add({'school_id': schoolId, 'point': schoolLocation});
+        }
+      }
+
+      final orderedPickups = pendingPickups.isEmpty
           ? const <Map<String, dynamic>>[]
           : _sortStopsByNearestNeighbor(
-              origin: routeStart,
+              origin: startNonNull,
               stops: pendingPickups,
             );
-      return [routeStart, ...ordered.map((e) => e['point'] as LatLng), school];
-    }
 
-    final remainingDropoffs = <Map<String, dynamic>>[];
-    for (final id in studentIds) {
-      final s = statusOf(id);
-      if (s == BoardingStatus.absent || s == BoardingStatus.alighted) continue;
-      final p = pickupOf(id);
-      if (p != null) {
-        remainingDropoffs.add({'student_id': id, 'point': p});
+      final orderedSchools = schoolStops.isEmpty
+          ? const <Map<String, dynamic>>[]
+          : _sortStopsByNearestNeighbor(
+              origin: orderedPickups.isNotEmpty
+                  ? orderedPickups.last['point'] as LatLng
+                  : startNonNull,
+              stops: schoolStops,
+            );
+
+      return [
+        startNonNull,
+        ...orderedPickups.map((e) => e['point'] as LatLng),
+        ...orderedSchools.map((e) => e['point'] as LatLng),
+      ];
+    } else {
+      // Afternoon route: current position -> schools (if needed) -> student dropoffs -> home/operator
+      final schoolStops = <Map<String, dynamic>>[];
+      final remainingDropoffs = <Map<String, dynamic>>[];
+
+      final targetSchoolType = routeType == 'primary_pm'
+          ? 'primary'
+          : routeType == 'secondary_pm'
+          ? 'secondary'
+          : null;
+
+      // Check if any students still need to be picked up from school (notBoarded)
+      bool hasStudentsAtSchool = false;
+      for (final schoolId in schoolsWithActiveStudents.keys) {
+        final studentIds = schoolsWithActiveStudents[schoolId] ?? [];
+        for (final studentId in studentIds) {
+          final status = statusOf(studentId);
+          if (status == BoardingStatus.notBoarded) {
+            hasStudentsAtSchool = true;
+            break;
+          }
+        }
+        if (hasStudentsAtSchool) break;
       }
-    }
-    final ordered = remainingDropoffs.isEmpty
-        ? const <Map<String, dynamic>>[]
-        : _sortStopsByNearestNeighbor(origin: school, stops: remainingDropoffs);
 
-    // Keep afternoon logic consistent with driver routing:
-    // current -> school -> dropoffs -> home
-    return [
-      routeStart,
-      school,
-      ...ordered.map((e) => e['point'] as LatLng),
-      home,
-    ];
+      if (hasStudentsAtSchool) {
+        for (final schoolId in schoolsWithActiveStudents.keys) {
+          final schoolLocation = _getSchoolLocation(schoolId);
+          final schoolType = _schoolTypes[schoolId] ?? 'primary';
+
+          if (schoolLocation != null &&
+              (targetSchoolType == null ||
+                  schoolType.toLowerCase() == targetSchoolType)) {
+            schoolStops.add({'school_id': schoolId, 'point': schoolLocation});
+          }
+        }
+      }
+
+      final visitedSchoolIds = targetSchoolType != null
+          ? schoolsWithActiveStudents.keys
+                .where(
+                  (schoolId) =>
+                      (_schoolTypes[schoolId] ?? 'primary').toLowerCase() ==
+                      targetSchoolType,
+                )
+                .toSet()
+          : schoolsWithActiveStudents.keys.toSet();
+
+      for (final studentId in studentById.keys) {
+        final studentData = studentById[studentId]!;
+        final studentSchoolId = (studentData['school_id'] ?? '').toString();
+
+        if (targetSchoolType != null &&
+            !visitedSchoolIds.contains(studentSchoolId)) {
+          continue;
+        }
+
+        final status = statusOf(studentId);
+        if (status == BoardingStatus.absent ||
+            status == BoardingStatus.alighted) {
+          continue;
+        }
+        final dropoff = pickupOf(studentId);
+        if (dropoff != null) {
+          remainingDropoffs.add({'student_id': studentId, 'point': dropoff});
+        }
+      }
+
+      final orderedSchools = schoolStops.isEmpty
+          ? const <Map<String, dynamic>>[]
+          : _sortStopsByNearestNeighbor(
+              origin: startNonNull,
+              stops: schoolStops,
+            );
+
+      final orderedDropoffs = remainingDropoffs.isEmpty
+          ? const <Map<String, dynamic>>[]
+          : _sortStopsByNearestNeighbor(
+              origin: orderedSchools.isNotEmpty
+                  ? orderedSchools.last['point'] as LatLng
+                  : startNonNull,
+              stops: remainingDropoffs,
+            );
+
+      return [
+        startNonNull,
+        ...orderedSchools.map((e) => e['point'] as LatLng),
+        ...orderedDropoffs.map((e) => e['point'] as LatLng),
+        (_getCachedOperatorLocation() ?? home) ?? startNonNull,
+      ];
+    }
   }
 
   Widget _buildMap({
@@ -361,6 +742,9 @@ class _MonitorPageState extends State<MonitorPage> {
     required String heroTag,
     LatLng? parentLocation,
   }) {
+    debugPrint(
+      'Monitor._buildMap: polyline=${polylinePoints.length} markers=${markers.length} driverPoint=${driverPoint != null} parentLocation=${parentLocation != null}',
+    );
     return Stack(
       children: [
         FlutterMap(
@@ -460,11 +844,16 @@ class _MonitorPageState extends State<MonitorPage> {
               builder: (context, driverSnap) {
                 final driver =
                     driverSnap.data?.data() ?? const <String, dynamic>{};
+                debugPrint('Monitor: driver doc keys=${driver.keys.toList()}');
                 final tripId = (driver['active_trip_id'] ?? '').toString();
+                debugPrint('Monitor: driver active_trip_id=$tripId');
 
                 if (tripId.isEmpty) {
                   final LatLng? pickup = MonitorPage._latLngFromMap(
                     (child['pickup_location'] as Map?)?.cast<String, dynamic>(),
+                  );
+                  debugPrint(
+                    'Monitor: child pickup_location present=${pickup != null} assignedDriver=$assignedDriver',
                   );
 
                   return StreamBuilder<DatabaseEvent>(
@@ -473,9 +862,9 @@ class _MonitorPageState extends State<MonitorPage> {
                       LatLng center = pickup ?? const LatLng(0, 0);
                       LatLng? driverPoint;
 
-                      final raw = driverLocSnap.data?.snapshot.value;
-                      if (raw is Map) {
-                        final m = raw.cast<Object?, Object?>();
+                      final val = driverLocSnap.data?.snapshot.value;
+                      if (val is Map) {
+                        final m = val.cast<Object?, Object?>();
                         final lat = (m['lat'] as num?)?.toDouble();
                         final lng = (m['lng'] as num?)?.toDouble();
                         if (lat != null && lng != null) {
@@ -677,6 +1066,28 @@ class _MonitorPageState extends State<MonitorPage> {
                                         for (final d in docs) d.id: d.data(),
                                       };
 
+                                      final passengersList = passengers
+                                          .map((e) => e.cast<String, dynamic>())
+                                          .toList();
+                                      debugPrint(
+                                        'Monitor: fallback passengers=${passengersList.length} studentDocs=${studentById.length}',
+                                      );
+                                      WidgetsBinding.instance
+                                          .addPostFrameCallback((_) {
+                                            _ensureSchoolTypesLoaded(
+                                              studentById,
+                                            );
+                                            _ensureSchoolLocations(studentById);
+                                          });
+                                      debugPrint(
+                                        'Monitor: fallback passengers list=$passengersList',
+                                      );
+                                      debugPrint(
+                                        'Monitor: fallback studentDocKeys=${studentById.keys.toList()}',
+                                      );
+                                      debugPrint(
+                                        'Monitor: driver has_home=${driver.containsKey('home_location')} has_service_area=${driver.containsKey('service_area')}',
+                                      );
                                       final stopPoints =
                                           _buildRoutePolylineStops(
                                             routeType: routeType,
@@ -687,22 +1098,24 @@ class _MonitorPageState extends State<MonitorPage> {
                                                     fallbackDriverPoint,
                                                   )
                                                 : null,
-                                            passengers: passengers
-                                                .map(
-                                                  (e) =>
-                                                      e.cast<String, dynamic>(),
-                                                )
-                                                .toList(),
+                                            passengers: passengersList,
                                             studentById: studentById,
                                           );
 
-                                      WidgetsBinding.instance
-                                          .addPostFrameCallback((_) {
-                                            _ensureRoutedPolyline(
-                                              routeType,
-                                              stopPoints,
-                                            );
-                                          });
+                                      debugPrint(
+                                        'Monitor: computed stopPoints=${stopPoints.length} for routeType=$routeType (fallback)',
+                                      );
+                                      WidgetsBinding.instance.addPostFrameCallback((
+                                        _,
+                                      ) {
+                                        debugPrint(
+                                          'Monitor: calling _ensureRoutedPolyline for routeType=$routeType stopCount=${stopPoints.length}',
+                                        );
+                                        _ensureRoutedPolyline(
+                                          routeType,
+                                          stopPoints,
+                                        );
+                                      });
 
                                       final routed =
                                           _routedKey ==
@@ -716,6 +1129,9 @@ class _MonitorPageState extends State<MonitorPage> {
                                           (routed != null && routed.length >= 2)
                                           ? routed
                                           : stopPoints;
+                                      debugPrint(
+                                        'Monitor: polylinePoints=${polylinePoints.length} usingRouted=${routed != null && routed.length >= 2}',
+                                      );
 
                                       final usedKeys = <String>{};
                                       final routeMarkers =
@@ -723,6 +1139,15 @@ class _MonitorPageState extends State<MonitorPage> {
                                             stopPoints,
                                             usedKeys,
                                           );
+                                      routeMarkers.addAll(
+                                        _buildSchoolMarkers(
+                                          tripId: tripId,
+                                          routeType: routeType,
+                                          passengers: passengersList,
+                                          studentById: studentById,
+                                          seenKeys: usedKeys,
+                                        ),
+                                      );
                                       if (parentPickupLocation != null &&
                                           usedKeys.add(
                                             _pointKey(parentPickupLocation),
@@ -848,19 +1273,44 @@ class _MonitorPageState extends State<MonitorPage> {
                                   for (final d in docs) d.id: d.data(),
                                 };
 
+                                final passengersList = passengers
+                                    .map((e) => e.cast<String, dynamic>())
+                                    .toList();
+                                debugPrint(
+                                  'Monitor: active passengers=${passengersList.length} studentDocs=${studentById.length}',
+                                );
+                                WidgetsBinding.instance.addPostFrameCallback((
+                                  _,
+                                ) {
+                                  _ensureSchoolTypesLoaded(studentById);
+                                  _ensureSchoolLocations(studentById);
+                                });
+                                debugPrint(
+                                  'Monitor: active passengers list=$passengersList',
+                                );
+                                debugPrint(
+                                  'Monitor: active studentDocKeys=${studentById.keys.toList()}',
+                                );
+                                debugPrint(
+                                  'Monitor: driver has_home=${driver.containsKey('home_location')} has_service_area=${driver.containsKey('service_area')}',
+                                );
                                 final stopPoints = _buildRoutePolylineStops(
                                   routeType: routeType,
                                   driverData: driver,
                                   driverLivePoint: _roundLatLng(dp),
-                                  passengers: passengers
-                                      .map((e) => e.cast<String, dynamic>())
-                                      .toList(),
+                                  passengers: passengersList,
                                   studentById: studentById,
                                 );
 
+                                debugPrint(
+                                  'Monitor: computed stopPoints=${stopPoints.length} for routeType=$routeType (active)',
+                                );
                                 WidgetsBinding.instance.addPostFrameCallback((
                                   _,
                                 ) {
+                                  debugPrint(
+                                    'Monitor: calling _ensureRoutedPolyline for routeType=$routeType stopCount=${stopPoints.length} (active)',
+                                  );
                                   _ensureRoutedPolyline(routeType, stopPoints);
                                 });
 
@@ -873,11 +1323,23 @@ class _MonitorPageState extends State<MonitorPage> {
                                     (routed != null && routed.length >= 2)
                                     ? routed
                                     : stopPoints;
+                                debugPrint(
+                                  'Monitor: polylinePoints=${polylinePoints.length} usingRouted=${routed != null && routed.length >= 2}',
+                                );
 
                                 final usedKeys = <String>{};
                                 final routeMarkers = _buildRouteStopMarkers(
                                   stopPoints,
                                   usedKeys,
+                                );
+                                routeMarkers.addAll(
+                                  _buildSchoolMarkers(
+                                    tripId: tripId,
+                                    routeType: routeType,
+                                    passengers: passengersList,
+                                    studentById: studentById,
+                                    seenKeys: usedKeys,
+                                  ),
                                 );
                                 if (parentPickupLocation != null &&
                                     usedKeys.add(
