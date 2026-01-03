@@ -539,10 +539,44 @@ class _MonitorPageState extends State<MonitorPage> {
       'Monitor._buildRoutePolylineStops: routeType=$routeType passengers=${passengers.length} studentDocs=${studentById.length} driverKeys=${driverData?.keys.toList()}',
     );
 
+    // Filter students by trip_type based on route type
+    // Morning routes (going) include students with trip_type 'going' or 'both'
+    // Afternoon routes (return) include students with trip_type 'return' or 'both'
+    final isGoingRoute = routeType == 'morning';
+    final isReturnRoute =
+        routeType == 'primary_pm' || routeType == 'secondary_pm';
+
+    final filteredStudentById = <String, Map<String, dynamic>>{};
+    for (final studentId in studentById.keys) {
+      final tripType = (studentById[studentId]?['trip_type'] ?? 'both')
+          .toString();
+
+      bool shouldInclude = false;
+      if (tripType == 'both') {
+        shouldInclude = true;
+      } else if (isGoingRoute && tripType == 'going') {
+        shouldInclude = true;
+      } else if (isReturnRoute && tripType == 'return') {
+        shouldInclude = true;
+      }
+
+      if (shouldInclude) {
+        filteredStudentById[studentId] = studentById[studentId]!;
+      }
+    }
+
+    final filteredPassengers = passengers
+        .where(
+          (p) => filteredStudentById.containsKey(
+            (p['student_id'] ?? '').toString(),
+          ),
+        )
+        .toList();
+
     // Fallback first pickup
     LatLng? fallbackFirstStop;
-    for (final studentId in studentById.keys) {
-      final studentData = studentById[studentId]!;
+    for (final studentId in filteredStudentById.keys) {
+      final studentData = filteredStudentById[studentId]!;
       final loc = (studentData['pickup_location'] as Map?)
           ?.cast<String, dynamic>();
       final p = MonitorPage._latLngFromMap(loc);
@@ -560,7 +594,7 @@ class _MonitorPageState extends State<MonitorPage> {
     final LatLng startNonNull = start;
 
     BoardingStatus statusOf(String studentId) {
-      final p = passengers.firstWhere(
+      final p = filteredPassengers.firstWhere(
         (x) => (x['student_id'] ?? '').toString() == studentId,
         orElse: () => const <String, dynamic>{},
       );
@@ -570,14 +604,14 @@ class _MonitorPageState extends State<MonitorPage> {
     }
 
     LatLng? pickupOf(String studentId) {
-      final data = studentById[studentId];
+      final data = filteredStudentById[studentId];
       final loc = (data?['pickup_location'] as Map?)?.cast<String, dynamic>();
       return MonitorPage._latLngFromMap(loc);
     }
 
     final schoolsWithActiveStudents = <String, List<String>>{};
-    for (final studentId in studentById.keys) {
-      final studentData = studentById[studentId]!;
+    for (final studentId in filteredStudentById.keys) {
+      final studentData = filteredStudentById[studentId]!;
       final schoolId = (studentData['school_id'] ?? '').toString();
       if (schoolId.isEmpty) continue;
 
@@ -598,7 +632,7 @@ class _MonitorPageState extends State<MonitorPage> {
       final pendingPickups = <Map<String, dynamic>>[];
       final schoolStops = <Map<String, dynamic>>[];
 
-      for (final studentId in studentById.keys) {
+      for (final studentId in filteredStudentById.keys) {
         final status = statusOf(studentId);
         if (status == BoardingStatus.boarded ||
             status == BoardingStatus.absent ||
@@ -688,8 +722,8 @@ class _MonitorPageState extends State<MonitorPage> {
                 .toSet()
           : schoolsWithActiveStudents.keys.toSet();
 
-      for (final studentId in studentById.keys) {
-        final studentData = studentById[studentId]!;
+      for (final studentId in filteredStudentById.keys) {
+        final studentData = filteredStudentById[studentId]!;
         final studentSchoolId = (studentData['school_id'] ?? '').toString();
 
         if (targetSchoolType != null &&

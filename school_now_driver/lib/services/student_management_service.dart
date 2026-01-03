@@ -82,6 +82,8 @@ class StudentManagementService {
 
           tx.set(childRef, {
             'assigned_driver_id': driverId,
+            'trip_type':
+                data['trip_type'] ?? 'both', // Default to both if not specified
             'updated_at': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
         }
@@ -92,6 +94,8 @@ class StudentManagementService {
           'contact_number': data['contact_number'],
           'parent_id': parentId,
           'pickup_location': data['pickup_location'],
+          'trip_type':
+              data['trip_type'] ?? 'both', // Default to both if not specified
           'attendance_override': 'attending',
           'attendance_date_ymd': '',
           'created_at': FieldValue.serverTimestamp(),

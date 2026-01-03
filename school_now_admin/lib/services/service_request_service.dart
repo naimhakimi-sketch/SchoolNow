@@ -173,6 +173,8 @@ class ServiceRequestService {
             // Assign child to this driver (merge to avoid overwriting other fields)
             tx.set(childRef, {
               'assigned_driver_id': driverId,
+              'trip_type':
+                  requestData['trip_type'] ?? 'both', // Default to both
               'service_end_date': serviceEndDate,
               'updated_at': FieldValue.serverTimestamp(),
             }, SetOptions(merge: true));
@@ -195,6 +197,7 @@ class ServiceRequestService {
             'school_name': childData['school_name'] ?? '',
             'school_id': childData['school_id'] ?? '',
             'pickup_location': requestData['pickup_location'] ?? '',
+            'trip_type': requestData['trip_type'] ?? 'both', // Default to both
             'contact_number':
                 requestData['parent_phone'] ??
                 requestData['contact_number'] ??

@@ -90,6 +90,7 @@ class _DriversPageState extends State<DriversPage> {
         return;
       }
       final paymentId = paymentResult.paymentId;
+      final tripType = paymentResult.tripType;
 
       final reqId = '${widget.parentId}_${widget.childDoc.id}';
       final pickup = _pickupFromChild();
@@ -111,6 +112,7 @@ class _DriversPageState extends State<DriversPage> {
               : {'lat': pickup.latitude, 'lng': pickup.longitude},
           'payment_id': paymentId,
           'amount': amount,
+          'trip_type': tripType,
         },
       );
 
@@ -182,6 +184,7 @@ class _DriversPageState extends State<DriversPage> {
       }
 
       final paymentId = paymentResult.paymentId;
+      final tripType = paymentResult.tripType;
       final pickup = _pickupFromChild();
 
       await _requestService.createServiceRequest(
@@ -203,6 +206,7 @@ class _DriversPageState extends State<DriversPage> {
               : {'lat': pickup.latitude, 'lng': pickup.longitude},
           'payment_id': paymentId,
           'amount': amount,
+          'trip_type': tripType,
         },
       );
 

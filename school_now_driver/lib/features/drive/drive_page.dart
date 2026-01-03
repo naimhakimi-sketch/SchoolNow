@@ -251,6 +251,47 @@ class _DrivePageState extends State<DrivePage> {
         widget.driverId,
       );
 
+      // Filter students by trip type (going/return/both) based on route type
+      // Morning routes (going) use students with trip_type 'going' or 'both'
+      // Afternoon routes (return) use students with trip_type 'return' or 'both'
+      final isGoingRoute = _selectedRouteType == 'morning';
+      final isReturnRoute =
+          _selectedRouteType == 'primary_pm' ||
+          _selectedRouteType == 'secondary_pm';
+
+      final tripTypeFiltered = <String>[];
+      final studentsCollection = FirebaseFirestore.instance
+          .collection('drivers')
+          .doc(widget.driverId)
+          .collection('students');
+
+      for (final studentId in studentIds) {
+        try {
+          final studentSnap = await studentsCollection.doc(studentId).get();
+          if (!studentSnap.exists) continue;
+          final tripType = (studentSnap.data()?['trip_type'] ?? 'both')
+              .toString();
+
+          // Include student if their trip_type matches the route type
+          bool shouldInclude = false;
+          if (tripType == 'both') {
+            shouldInclude = true;
+          } else if (isGoingRoute && tripType == 'going') {
+            shouldInclude = true;
+          } else if (isReturnRoute && tripType == 'return') {
+            shouldInclude = true;
+          }
+
+          if (shouldInclude) {
+            tripTypeFiltered.add(studentId);
+          }
+        } catch (_) {
+          // Skip on error, default to not including this student
+        }
+      }
+
+      studentIds = tripTypeFiltered;
+
       // For afternoon routes, filter students by school type.
       if (_selectedRouteType == 'primary_pm' ||
           _selectedRouteType == 'secondary_pm') {

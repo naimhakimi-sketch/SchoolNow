@@ -5,10 +5,12 @@ import '../../services/request_payment_service.dart';
 class PaymentResult {
   final String paymentId;
   final num amount;
+  final String tripType;
 
   const PaymentResult({
     required this.paymentId,
     required this.amount,
+    this.tripType = 'both', // both, going, return
   });
 }
 
@@ -41,6 +43,7 @@ class _PaymentPageState extends State<PaymentPage> {
   final _cvv = TextEditingController();
 
   String _method = 'Card';
+  String _tripType = 'both'; // both, going, return
   bool _loading = false;
   String? _error;
 
@@ -69,14 +72,19 @@ class _PaymentPageState extends State<PaymentPage> {
       // Lightweight validation (fake page).
       if (_method == 'Card') {
         final cardDigits = _digitsOnly(_cardNumber.text);
-        if (_nameOnCard.text.trim().isEmpty) throw Exception('Name on card is required');
-        if (cardDigits.length < 12) throw Exception('Card number looks too short');
+        if (_nameOnCard.text.trim().isEmpty)
+          throw Exception('Name on card is required');
+        if (cardDigits.length < 12)
+          throw Exception('Card number looks too short');
         if (_expiry.text.trim().isEmpty) throw Exception('Expiry is required');
-        if (_digitsOnly(_cvv.text).length < 3) throw Exception('CVV looks too short');
+        if (_digitsOnly(_cvv.text).length < 3)
+          throw Exception('CVV looks too short');
       }
 
       final cardDigits = _digitsOnly(_cardNumber.text);
-      final last4 = cardDigits.length >= 4 ? cardDigits.substring(cardDigits.length - 4) : '';
+      final last4 = cardDigits.length >= 4
+          ? cardDigits.substring(cardDigits.length - 4)
+          : '';
 
       final paymentId = await _service.createPayment(
         parentId: widget.parentId,
@@ -85,13 +93,20 @@ class _PaymentPageState extends State<PaymentPage> {
         amount: widget.amount,
         metadata: {
           'method': _method,
+          'trip_type': _tripType,
           if (_method == 'Card') 'card_last4': last4,
           if (_method == 'Card') 'name_on_card': _nameOnCard.text.trim(),
         },
       );
 
       if (!mounted) return;
-      Navigator.of(context).pop(PaymentResult(paymentId: paymentId, amount: widget.amount));
+      Navigator.of(context).pop(
+        PaymentResult(
+          paymentId: paymentId,
+          amount: widget.amount,
+          tripType: _tripType,
+        ),
+      );
     } catch (e) {
       setState(() {
         _error = e.toString();
@@ -120,11 +135,60 @@ class _PaymentPageState extends State<PaymentPage> {
                 children: [
                   Text('Driver', style: Theme.of(context).textTheme.labelLarge),
                   const SizedBox(height: 4),
-                  Text(widget.driverName.isEmpty ? widget.driverId : widget.driverName),
+                  Text(
+                    widget.driverName.isEmpty
+                        ? widget.driverId
+                        : widget.driverName,
+                  ),
                   const SizedBox(height: 12),
                   Text('Amount', style: Theme.of(context).textTheme.labelLarge),
                   const SizedBox(height: 4),
                   Text(widget.amount.toString()),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Trip Type',
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  RadioListTile<String>(
+                    value: 'both',
+                    groupValue: _tripType,
+                    onChanged: _loading
+                        ? null
+                        : (v) => setState(() => _tripType = v ?? 'both'),
+                    title: const Text('Both (Going & Return)'),
+                    subtitle: const Text(
+                      'Morning pickup and afternoon dropoff',
+                    ),
+                  ),
+                  RadioListTile<String>(
+                    value: 'going',
+                    groupValue: _tripType,
+                    onChanged: _loading
+                        ? null
+                        : (v) => setState(() => _tripType = v ?? 'going'),
+                    title: const Text('Going Only'),
+                    subtitle: const Text('Morning pickup to school'),
+                  ),
+                  RadioListTile<String>(
+                    value: 'return',
+                    groupValue: _tripType,
+                    onChanged: _loading
+                        ? null
+                        : (v) => setState(() => _tripType = v ?? 'return'),
+                    title: const Text('Return Only'),
+                    subtitle: const Text('School to home afternoon dropoff'),
+                  ),
                 ],
               ),
             ),
@@ -135,9 +199,18 @@ class _PaymentPageState extends State<PaymentPage> {
             initialValue: _method,
             decoration: const InputDecoration(labelText: 'Payment method'),
             items: const [
-              DropdownMenuItem(value: 'Card', child: Text('Card (Visa/Master)')),
-              DropdownMenuItem(value: 'FPX', child: Text('FPX (Online Banking)')),
-              DropdownMenuItem(value: 'Cash', child: Text('Cash (record only)')),
+              DropdownMenuItem(
+                value: 'Card',
+                child: Text('Card (Visa/Master)'),
+              ),
+              DropdownMenuItem(
+                value: 'FPX',
+                child: Text('FPX (Online Banking)'),
+              ),
+              DropdownMenuItem(
+                value: 'Cash',
+                child: Text('Cash (record only)'),
+              ),
             ],
             onChanged: _loading
                 ? null
@@ -168,7 +241,9 @@ class _PaymentPageState extends State<PaymentPage> {
                 Expanded(
                   child: TextField(
                     controller: _expiry,
-                    decoration: const InputDecoration(labelText: 'Expiry (MM/YY)'),
+                    decoration: const InputDecoration(
+                      labelText: 'Expiry (MM/YY)',
+                    ),
                     textInputAction: TextInputAction.next,
                   ),
                 ),
@@ -197,13 +272,16 @@ class _PaymentPageState extends State<PaymentPage> {
             ),
           ],
           const SizedBox(height: 12),
-          if (_error != null) Text(_error!, style: TextStyle(color: Colors.red.shade700)),
+          if (_error != null)
+            Text(_error!, style: TextStyle(color: Colors.red.shade700)),
           const SizedBox(height: 8),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
               onPressed: _loading ? null : _pay,
-              child: _loading ? const CircularProgressIndicator() : const Text('Pay'),
+              child: _loading
+                  ? const CircularProgressIndicator()
+                  : const Text('Pay'),
             ),
           ),
           const SizedBox(height: 8),

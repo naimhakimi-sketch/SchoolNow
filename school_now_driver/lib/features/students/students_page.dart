@@ -81,6 +81,8 @@ class StudentsPage extends StatelessWidget {
                           );
                           final parentName = (data['parent_name'] ?? '')
                               .toString();
+                          final tripType = (data['trip_type'] ?? 'both')
+                              .toString();
 
                           return Card(
                             child: Padding(
@@ -104,6 +106,16 @@ class StudentsPage extends StatelessWidget {
                                         ),
                                       ),
                                     ),
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Text(
+                                      'Trip Type: ${_getTripTypeLabel(tripType)}',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.black54,
+                                      ),
+                                    ),
+                                  ),
                                   const SizedBox(height: 8),
                                   Row(
                                     children: [
@@ -193,6 +205,8 @@ class StudentsPage extends StatelessWidget {
                               .toString();
                           final schoolName = (data['school_name'] ?? '')
                               .toString();
+                          final tripType = (data['trip_type'] ?? 'both')
+                              .toString();
 
                           return Card(
                             child: ListTile(
@@ -219,6 +233,13 @@ class StudentsPage extends StatelessWidget {
                                         color: Colors.grey,
                                       ),
                                     ),
+                                  Text(
+                                    'Trip: ${_getTripTypeLabel(tripType)}',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
                                 ],
                               ),
                               trailing: parentPhone.isEmpty
@@ -258,5 +279,14 @@ class StudentsPage extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _getTripTypeLabel(String tripType) {
+    return switch (tripType) {
+      'going' => 'Going Only',
+      'return' => 'Return Only',
+      'both' => 'Both Ways',
+      _ => 'Unknown',
+    };
   }
 }

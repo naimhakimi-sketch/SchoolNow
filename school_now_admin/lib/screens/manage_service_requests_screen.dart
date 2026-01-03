@@ -189,6 +189,7 @@ class _ManageServiceRequestsScreenState
     final driverId = data['driver_id'] ?? '';
     final requestId = data['id'] ?? '';
     final amount = (data['amount'] as num?)?.toDouble() ?? 0;
+    final tripType = (data['trip_type'] ?? 'both').toString();
     final createdAt = (data['created_at'] as Timestamp?)?.toDate();
 
     Color statusColor;
@@ -274,6 +275,7 @@ class _ManageServiceRequestsScreenState
                     return _detailRow('Driver', snapshot.data ?? 'Loading...');
                   },
                 ),
+                _detailRow('Trip Type', _tripTypeLabel(tripType)),
                 if (createdAt != null)
                   _detailRow(
                     'Created At',
@@ -426,5 +428,14 @@ class _ManageServiceRequestsScreenState
         );
       }
     }
+  }
+
+  String _tripTypeLabel(String tripType) {
+    return switch (tripType) {
+      'going' => 'Going Only (Morning)',
+      'return' => 'Return Only (Afternoon)',
+      'both' => 'Both (Going & Return)',
+      _ => 'Unknown',
+    };
   }
 }
