@@ -41,11 +41,109 @@ class _App extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const Color primaryColor = Color(0xFFECCC6E);
+    const Color secondaryColor = Color(0xFF814256);
+    const Color backgroundColor = Colors.white;
+    const Color textColor = Color(0xFF2C2C2C);
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'SchoolNow Driver',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
+        useMaterial3: true,
+        colorScheme: ColorScheme.light(
+          primary: primaryColor,
+          secondary: secondaryColor,
+          surface: backgroundColor,
+          error: Colors.red,
+        ),
+        scaffoldBackgroundColor: backgroundColor,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: backgroundColor,
+          surfaceTintColor: backgroundColor,
+          elevation: 0,
+          centerTitle: true,
+          titleTextStyle: TextStyle(
+            color: textColor,
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+          ),
+          iconTheme: IconThemeData(color: textColor),
+        ),
+        textTheme: const TextTheme(
+          bodyLarge: TextStyle(color: textColor, fontSize: 16),
+          bodyMedium: TextStyle(color: textColor, fontSize: 14),
+          bodySmall: TextStyle(color: Color(0xFF999999), fontSize: 12),
+          headlineSmall: TextStyle(
+            color: textColor,
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          fillColor: const Color(0xFFF5F5F5),
+          filled: true,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFFE0E0E0)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFFE0E0E0)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: primaryColor, width: 2),
+          ),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 16,
+          ),
+          hintStyle: const TextStyle(color: Color(0xFF999999)),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: primaryColor,
+            foregroundColor: textColor,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+            elevation: 0,
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: secondaryColor,
+            side: const BorderSide(color: secondaryColor, width: 1.5),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+          ),
+        ),
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(foregroundColor: primaryColor),
+        ),
+        bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+          backgroundColor: backgroundColor,
+          selectedItemColor: primaryColor,
+          unselectedItemColor: Color(0xFFBBBBBB),
+          elevation: 8,
+          type: BottomNavigationBarType.fixed,
+        ),
+        cardTheme: CardThemeData(
+          color: backgroundColor,
+          elevation: 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        dividerTheme: const DividerThemeData(
+          color: Color(0xFFE0E0E0),
+          thickness: 1,
+          space: 16,
+        ),
       ),
       home: const _UpdateOnStart(
         appKey: 'school_now_driver',

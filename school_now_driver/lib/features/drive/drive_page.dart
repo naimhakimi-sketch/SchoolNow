@@ -1324,7 +1324,7 @@ class _DrivePageState extends State<DrivePage> {
                   Polyline(
                     points: polylinePoints,
                     strokeWidth: 4,
-                    color: Theme.of(context).colorScheme.primary,
+                    color: Theme.of(context).colorScheme.secondary,
                   ),
                 ],
               ),

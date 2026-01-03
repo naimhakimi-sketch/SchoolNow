@@ -62,18 +62,31 @@ class _MainTabsState extends State<MainTabs> {
           children: [
             Icon(
               _isTrackingLocation ? Icons.gps_fixed : Icons.gps_off,
-              color: _isTrackingLocation ? Colors.green : Colors.grey,
+              color: _isTrackingLocation
+                  ? const Color(0xFFECCC6E)
+                  : Colors.grey,
               size: 20,
             ),
-            const SizedBox(width: 8),
-            Text(_isTrackingLocation ? 'Location Active' : 'Location Off'),
+            const SizedBox(width: 12),
+            Text(
+              _isTrackingLocation ? 'Location Active' : 'Location Off',
+              style: TextStyle(
+                color: _isTrackingLocation
+                    ? const Color(0xFFECCC6E)
+                    : const Color(0xFF999999),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ],
         ),
+        elevation: 0,
+        backgroundColor: Colors.white,
       ),
       body: IndexedStack(index: _index, children: pages),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _index,
         onTap: (i) => setState(() => _index = i),
+        elevation: 16,
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.directions_bus),
