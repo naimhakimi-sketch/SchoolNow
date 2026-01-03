@@ -329,6 +329,60 @@ class _DrivePageState extends State<DrivePage> {
         builder: (_) => QrScannerPage(
           onCode: (code) async {
             final studentId = code;
+
+            // First check whether this student exists in this driver's
+            // assigned students collection. If not, inform the driver and
+            // do not mark boarded. Also ensure the student is listed on the
+            // trip's passenger list.
+            try {
+              final studentSnap = await FirebaseFirestore.instance
+                  .collection('drivers')
+                  .doc(widget.driverId)
+                  .collection('students')
+                  .doc(studentId)
+                  .get();
+              if (!studentSnap.exists) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'This student is not assigned to your service — they are not using your route.',
+                      ),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+                return;
+              }
+
+              // Also confirm the trip's passenger list includes this student.
+              final tripSnap = await FirebaseFirestore.instance
+                  .collection('trips')
+                  .doc(tripId)
+                  .get();
+              final trip = tripSnap.data();
+              final passengers =
+                  (trip?['passengers'] as List?)?.cast<Map>() ?? <Map>[];
+              final inTrip = passengers.any(
+                (p) => (p['student_id'] ?? '').toString() == studentId,
+              );
+              if (!inTrip) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        "This student isn't assigned to this trip — they're not using your service.",
+                      ),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+                return;
+              }
+            } catch (_) {
+              // If lookup fails for any reason, fall back to attempting the update.
+            }
+
             await _tripService.upsertPassengerStatus(
               tripId,
               studentId,

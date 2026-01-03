@@ -24,6 +24,8 @@ class _StudentPageState extends State<StudentPage> {
   final _trips = TripReadService();
   bool _scanning = false;
   String? _error;
+  // Map of tripId -> last scan timestamp (ms) to prevent rapid re-scans.
+  final Map<String, int> _lastScanMs = {};
 
   String _formatScanError(Object error) {
     if (error is FirebaseException) {
@@ -65,6 +67,18 @@ class _StudentPageState extends State<StudentPage> {
       final trip = snap.data();
       if (trip == null) throw Exception('Trip not found');
 
+      // Ensure trip is currently active/in progress. Reject old or non-active trips.
+      final status = (trip['status'] ?? '').toString();
+      if (status != 'in_progress') {
+        if (!mounted) return;
+        setState(() {
+          _scanning = false;
+          _error =
+              'This trip is not active. Please scan the current trip QR provided by your school/service.';
+        });
+        return;
+      }
+
       final passengers = (trip['passengers'] as List?)?.cast<Map>() ?? <Map>[];
       final me = passengers
           .map((e) => e.cast<String, dynamic>())
@@ -72,6 +86,31 @@ class _StudentPageState extends State<StudentPage> {
             (x) => (x['student_id'] ?? '').toString() == widget.childDoc.id,
             orElse: () => const <String, dynamic>{},
           );
+
+      // Prevent rapid consecutive scans of the same trip (e.g. accidental double-tap).
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      final last = _lastScanMs[tripId] ?? 0;
+      if (nowMs - last < 60000) {
+        if (!mounted) return;
+        setState(() {
+          _scanning = false;
+          _error =
+              'You recently scanned this trip. Please wait a minute before scanning again.';
+        });
+        return;
+      }
+
+      // If the scanned trip does not include this student, show a friendly
+      // error message (don't throw) so the UI presents a clear explanation.
+      if (me.isEmpty) {
+        if (!mounted) return;
+        setState(() {
+          _scanning = false;
+          _error =
+              'This driver is not assigned to your child. Please scan the driver QR provided by your school/service.';
+        });
+        return;
+      }
 
       final current = BoardingStatusCodec.fromJson(
         (me['status'] ?? 'not_boarded').toString(),
@@ -90,6 +129,9 @@ class _StudentPageState extends State<StudentPage> {
         studentId: widget.childDoc.id,
         status: BoardingStatusCodec.toJson(next),
       );
+
+      // Record successful scan time to prevent immediate re-scans.
+      _lastScanMs[tripId] = nowMs;
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
