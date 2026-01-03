@@ -57,446 +57,495 @@ class ProfilePage extends StatelessWidget {
             final assignedDriver = (child['assigned_driver_id'] ?? '')
                 .toString();
 
-            return ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                Row(
+            // Check if there's an active trip for ANY child of this parent
+            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection('trips')
+                  .where('status', isEqualTo: 'in_progress')
+                  .snapshots(),
+              builder: (context, tripsSnap) {
+                // Check if any trip belongs to any child of this parent
+                final allTrips = tripsSnap.data?.docs ?? [];
+                bool hasActiveTrip = false;
+
+                // Get all children of this parent
+                for (final tripDoc in allTrips) {
+                  final tripData = tripDoc.data();
+                  final studentId = tripData['student_id'] as String? ?? '';
+
+                  // Check if this trip's student is a child of this parent
+                  // by seeing if it matches any of the parent's children
+                  if (studentId == childDoc.id) {
+                    hasActiveTrip = true;
+                    break;
+                  }
+                }
+
+                return ListView(
+                  padding: const EdgeInsets.all(16),
                   children: [
-                    Expanded(
-                      child: Text(
-                        'Profile',
-                        style: Theme.of(context).textTheme.headlineSmall,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Profile',
+                            style: Theme.of(context).textTheme.headlineSmall,
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => EditProfilePage(
+                                  parentId: parentId,
+                                  name: name,
+                                  contactNumber: contact,
+                                  address: address,
+                                  pickupLocationLocked: hasActiveTrip,
+                                ),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.edit),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    ListTile(title: const Text('Name'), subtitle: Text(name)),
+                    ListTile(title: const Text('Email'), subtitle: Text(email)),
+                    if (contact.isNotEmpty)
+                      ListTile(
+                        title: const Text('Contact'),
+                        subtitle: Text(contact),
+                      ),
+                    ListTile(
+                      title: const Text('Address'),
+                      subtitle: Text(address.isEmpty ? '(not set)' : address),
+                      trailing: hasActiveTrip ? const Text('Locked') : null,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Student',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    Card(
+                      child: Column(
+                        children: [
+                          ListTile(
+                            leading: const Icon(Icons.school_outlined),
+                            title: Text(
+                              (child['child_name'] ?? 'Student').toString(),
+                            ),
+                            subtitle: Text(
+                              [
+                                if (((child['child_ic'] ?? '').toString())
+                                    .trim()
+                                    .isNotEmpty)
+                                  'IC: ${(child['child_ic'] ?? '').toString()}',
+                                if (((child['school_name'] ?? '').toString())
+                                    .trim()
+                                    .isNotEmpty)
+                                  'School: ${(child['school_name'] ?? '').toString()}',
+                              ].whereType<String>().join('\n'),
+                            ),
+                            isThreeLine: true,
+                            trailing: const Icon(Icons.edit),
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => EditChildPage(
+                                    parentId: parentId,
+                                    childId: childDoc.id,
+                                    initialChildName:
+                                        (child['child_name'] ?? '').toString(),
+                                    initialChildIc: (child['child_ic'] ?? '')
+                                        .toString(),
+                                    initialSchoolName:
+                                        (child['school_name'] ?? '').toString(),
+                                    initialSchoolId: child['school_id']
+                                        ?.toString(),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
                       ),
                     ),
-                    IconButton(
+
+                    const SizedBox(height: 12),
+                    ElevatedButton.icon(
                       onPressed: () {
                         Navigator.of(context).push(
                           MaterialPageRoute(
-                            builder: (_) => EditProfilePage(
-                              parentId: parentId,
-                              name: name,
-                              contactNumber: contact,
-                              address: address,
-                              addressLocked: assignedDriver.isNotEmpty,
-                            ),
+                            builder: (_) => const AddChildPage(),
                           ),
                         );
                       },
-                      icon: const Icon(Icons.edit),
+                      icon: const Icon(Icons.person_add),
+                      label: const Text('Add Another Child'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.deepPurple,
+                        foregroundColor: Colors.white,
+                      ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                ListTile(title: const Text('Name'), subtitle: Text(name)),
-                ListTile(title: const Text('Email'), subtitle: Text(email)),
-                if (contact.isNotEmpty)
-                  ListTile(
-                    title: const Text('Contact'),
-                    subtitle: Text(contact),
-                  ),
-                ListTile(
-                  title: const Text('Address'),
-                  subtitle: Text(address.isEmpty ? '(not set)' : address),
-                  trailing: assignedDriver.isNotEmpty
-                      ? const Text('Locked')
-                      : null,
-                ),
-                const SizedBox(height: 12),
-                Text('Student', style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 8),
-                Card(
-                  child: Column(
-                    children: [
-                      ListTile(
-                        leading: const Icon(Icons.school_outlined),
-                        title: Text(
-                          (child['child_name'] ?? 'Student').toString(),
+
+                    const SizedBox(height: 12),
+                    Text(
+                      'Student QR (for offline use):',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    Center(child: QrImageView(data: childDoc.id, size: 160)),
+
+                    const SizedBox(height: 18),
+                    Text(
+                      'Notifications',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.notifications),
+                        title: const Text('Notification Simulator'),
+                        subtitle: const Text(
+                          'Create sample notifications for testing',
                         ),
-                        subtitle: Text(
-                          [
-                            if (((child['child_ic'] ?? '').toString())
-                                .trim()
-                                .isNotEmpty)
-                              'IC: ${(child['child_ic'] ?? '').toString()}',
-                            if (((child['school_name'] ?? '').toString())
-                                .trim()
-                                .isNotEmpty)
-                              'School: ${(child['school_name'] ?? '').toString()}',
-                          ].whereType<String>().join('\n'),
-                        ),
-                        isThreeLine: true,
-                        trailing: const Icon(Icons.edit),
                         onTap: () {
                           Navigator.of(context).push(
                             MaterialPageRoute(
-                              builder: (_) => EditChildPage(
+                              builder: (_) => NotificationSimulatorPage(
                                 parentId: parentId,
                                 childId: childDoc.id,
-                                initialChildName: (child['child_name'] ?? '')
+                                childName: (child['child_name'] ?? 'child')
                                     .toString(),
-                                initialChildIc: (child['child_ic'] ?? '')
-                                    .toString(),
-                                initialSchoolName: (child['school_name'] ?? '')
-                                    .toString(),
-                                initialSchoolId: child['school_id']?.toString(),
                               ),
                             ),
                           );
                         },
                       ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 12),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const AddChildPage()),
-                    );
-                  },
-                  icon: const Icon(Icons.person_add),
-                  label: const Text('Add Another Child'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.deepPurple,
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-
-                const SizedBox(height: 12),
-                Text(
-                  'Student QR (for offline use):',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 8),
-                Center(child: QrImageView(data: childDoc.id, size: 160)),
-
-                const SizedBox(height: 18),
-                Text(
-                  'Notifications',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 8),
-                Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.notifications),
-                    title: const Text('Notification Simulator'),
-                    subtitle: const Text(
-                      'Create sample notifications for testing',
                     ),
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => NotificationSimulatorPage(
-                            parentId: parentId,
-                            childId: childDoc.id,
-                            childName: (child['child_name'] ?? 'child')
-                                .toString(),
+
+                    Card(
+                      child: Column(
+                        children: [
+                          SwitchListTile(
+                            title: const Text('Proximity alerts'),
+                            subtitle: const Text(
+                              'Notify when driver is near pickup',
+                            ),
+                            value: proximityAlert,
+                            onChanged: (v) {
+                              parentService.updateParent(parentId, {
+                                'notifications': {
+                                  'proximity_alert': v,
+                                  'boarding_alert': boardingAlert,
+                                },
+                              });
+                            },
                           ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-
-                Card(
-                  child: Column(
-                    children: [
-                      SwitchListTile(
-                        title: const Text('Proximity alerts'),
-                        subtitle: const Text(
-                          'Notify when driver is near pickup',
-                        ),
-                        value: proximityAlert,
-                        onChanged: (v) {
-                          parentService.updateParent(parentId, {
-                            'notifications': {
-                              'proximity_alert': v,
-                              'boarding_alert': boardingAlert,
+                          const Divider(height: 1),
+                          SwitchListTile(
+                            title: const Text('Boarding status alerts'),
+                            subtitle: const Text(
+                              'Notify when boarding status changes',
+                            ),
+                            value: boardingAlert,
+                            onChanged: (v) {
+                              parentService.updateParent(parentId, {
+                                'notifications': {
+                                  'proximity_alert': proximityAlert,
+                                  'boarding_alert': v,
+                                },
+                              });
                             },
-                          });
-                        },
+                          ),
+                        ],
                       ),
-                      const Divider(height: 1),
-                      SwitchListTile(
-                        title: const Text('Boarding status alerts'),
-                        subtitle: const Text(
-                          'Notify when boarding status changes',
-                        ),
-                        value: boardingAlert,
-                        onChanged: (v) {
-                          parentService.updateParent(parentId, {
-                            'notifications': {
-                              'proximity_alert': proximityAlert,
-                              'boarding_alert': v,
-                            },
-                          });
-                        },
+                    ),
+
+                    if (assignedDriver.isNotEmpty) ...[
+                      const SizedBox(height: 18),
+                      Text(
+                        'Billing',
+                        style: Theme.of(context).textTheme.titleMedium,
                       ),
-                    ],
-                  ),
-                ),
+                      const SizedBox(height: 8),
+                      StreamBuilder(
+                        stream: FirebaseFirestore.instance
+                            .collection('payments')
+                            .where('parent_id', isEqualTo: parentId)
+                            .snapshots(),
+                        builder: (context, paySnap) {
+                          final docs = (paySnap.data as dynamic)?.docs as List?;
+                          if (docs == null) return const SizedBox.shrink();
 
-                if (assignedDriver.isNotEmpty) ...[
-                  const SizedBox(height: 18),
-                  Text(
-                    'Billing',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 8),
-                  StreamBuilder(
-                    stream: FirebaseFirestore.instance
-                        .collection('payments')
-                        .where('parent_id', isEqualTo: parentId)
-                        .snapshots(),
-                    builder: (context, paySnap) {
-                      final docs = (paySnap.data as dynamic)?.docs as List?;
-                      if (docs == null) return const SizedBox.shrink();
+                          // Filter client-side to avoid composite index requirements.
+                          final filtered = docs.where((d) {
+                            final m = (d.data() as Map).cast<String, dynamic>();
+                            return (m['child_id'] ?? '').toString() ==
+                                    childDoc.id &&
+                                (m['driver_id'] ?? '').toString() ==
+                                    assignedDriver;
+                          }).toList();
 
-                      // Filter client-side to avoid composite index requirements.
-                      final filtered = docs.where((d) {
-                        final m = (d.data() as Map).cast<String, dynamic>();
-                        return (m['child_id'] ?? '').toString() ==
-                                childDoc.id &&
-                            (m['driver_id'] ?? '').toString() == assignedDriver;
-                      }).toList();
+                          if (filtered.isEmpty) {
+                            return const Text('No payment record yet.');
+                          }
 
-                      if (filtered.isEmpty) {
-                        return const Text('No payment record yet.');
-                      }
+                          filtered.sort((a, b) {
+                            final ma = (a.data() as Map)
+                                .cast<String, dynamic>();
+                            final mb = (b.data() as Map)
+                                .cast<String, dynamic>();
+                            final ta =
+                                (ma['created_at'] as Timestamp?)
+                                    ?.millisecondsSinceEpoch ??
+                                0;
+                            final tb =
+                                (mb['created_at'] as Timestamp?)
+                                    ?.millisecondsSinceEpoch ??
+                                0;
+                            return tb.compareTo(ta);
+                          });
 
-                      filtered.sort((a, b) {
-                        final ma = (a.data() as Map).cast<String, dynamic>();
-                        final mb = (b.data() as Map).cast<String, dynamic>();
-                        final ta =
-                            (ma['created_at'] as Timestamp?)
-                                ?.millisecondsSinceEpoch ??
-                            0;
-                        final tb =
-                            (mb['created_at'] as Timestamp?)
-                                ?.millisecondsSinceEpoch ??
-                            0;
-                        return tb.compareTo(ta);
-                      });
+                          final latest = filtered.first;
+                          final m = (latest.data() as Map)
+                              .cast<String, dynamic>();
+                          final status = (m['status'] ?? 'pending').toString();
+                          final amount = (m['amount'] ?? 0).toString();
+                          final metadata =
+                              (m['metadata'] as Map?)
+                                  ?.cast<String, dynamic>() ??
+                              {};
+                          final cardLast4 =
+                              (metadata['card_last4'] ??
+                                      (m['card_last4'] ?? ''))
+                                  .toString();
+                          final method =
+                              (metadata['method'] ?? (m['method'] ?? ''))
+                                  .toString();
+                          final nameOnCard =
+                              (metadata['name_on_card'] ??
+                                      (m['name_on_card'] ?? ''))
+                                  .toString();
+                          final createdAt = (m['created_at'] as Timestamp?)
+                              ?.toDate();
 
-                      final latest = filtered.first;
-                      final m = (latest.data() as Map).cast<String, dynamic>();
-                      final status = (m['status'] ?? 'pending').toString();
-                      final amount = (m['amount'] ?? 0).toString();
-                      final metadata =
-                          (m['metadata'] as Map?)?.cast<String, dynamic>() ??
-                          {};
-                      final cardLast4 =
-                          (metadata['card_last4'] ?? (m['card_last4'] ?? ''))
-                              .toString();
-                      final method = (metadata['method'] ?? (m['method'] ?? ''))
-                          .toString();
-                      final nameOnCard =
-                          (metadata['name_on_card'] ??
-                                  (m['name_on_card'] ?? ''))
-                              .toString();
-                      final createdAt = (m['created_at'] as Timestamp?)
-                          ?.toDate();
+                          // Calculate due date: 1st of next month
+                          DateTime? dueDate;
+                          if (createdAt != null) {
+                            final nextMonth = createdAt.month == 12
+                                ? DateTime(createdAt.year + 1, 1, 1)
+                                : DateTime(
+                                    createdAt.year,
+                                    createdAt.month + 1,
+                                    1,
+                                  );
+                            dueDate = nextMonth;
+                          }
 
-                      // Calculate due date: 1st of next month
-                      DateTime? dueDate;
-                      if (createdAt != null) {
-                        final nextMonth = createdAt.month == 12
-                            ? DateTime(createdAt.year + 1, 1, 1)
-                            : DateTime(createdAt.year, createdAt.month + 1, 1);
-                        dueDate = nextMonth;
-                      }
-
-                      String? dueText;
-                      int? daysLeft;
-                      if (dueDate != null) {
-                        final now = DateTime.now();
-                        final today = DateTime(now.year, now.month, now.day);
-                        daysLeft = dueDate.difference(today).inDays;
-                        dueText =
-                            '${dueDate.year.toString().padLeft(4, '0')}-${dueDate.month.toString().padLeft(2, '0')}-${dueDate.day.toString().padLeft(2, '0')}';
-
-                        // SRS FR-PA-5.8: reminders 2 days and 1 day before due date.
-                        if ((daysLeft == 2 || daysLeft == 1) &&
-                            status == 'pending') {
-                          final notifId =
-                              'billing_${childDoc.id}_${dueText}_${daysLeft}d';
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            notificationService.createUnique(
-                              notificationId: notifId,
-                              userId: parentId,
-                              type: 'billing',
-                              message:
-                                  'Payment due in $daysLeft day(s) for ${(child['child_name'] ?? 'child').toString()}',
+                          String? dueText;
+                          int? daysLeft;
+                          if (dueDate != null) {
+                            final now = DateTime.now();
+                            final today = DateTime(
+                              now.year,
+                              now.month,
+                              now.day,
                             );
-                          });
-                        }
-                      }
+                            daysLeft = dueDate.difference(today).inDays;
+                            dueText =
+                                '${dueDate.year.toString().padLeft(4, '0')}-${dueDate.month.toString().padLeft(2, '0')}-${dueDate.day.toString().padLeft(2, '0')}';
 
-                      return Card(
-                        child: Column(
-                          children: [
-                            ListTile(
-                              title: const Text('Payment Status'),
-                              subtitle: Text(status),
-                              trailing: status == 'completed'
-                                  ? Icon(
-                                      Icons.check_circle,
-                                      color: Colors.green.shade600,
-                                    )
-                                  : null,
-                            ),
-                            const Divider(height: 1),
-                            ListTile(
-                              title: const Text('Amount'),
-                              subtitle: Text('RM $amount'),
-                            ),
-                            const Divider(height: 1),
-                            if (method.isNotEmpty)
-                              ListTile(
-                                title: const Text('Payment Method'),
-                                subtitle: Text(method),
-                              ),
-                            if (method.isNotEmpty) const Divider(height: 1),
-                            if (cardLast4.isNotEmpty)
-                              ListTile(
-                                title: const Text('Card Last 4'),
-                                subtitle: Text(cardLast4),
-                              ),
-                            if (cardLast4.isNotEmpty) const Divider(height: 1),
-                            if (nameOnCard.isNotEmpty)
-                              ListTile(
-                                title: const Text('Name on Card'),
-                                subtitle: Text(nameOnCard),
-                              ),
-                            if (nameOnCard.isNotEmpty) const Divider(height: 1),
-                            ListTile(
-                              title: const Text('Last Payment Date'),
-                              subtitle: Text(
-                                createdAt == null
-                                    ? 'N/A'
-                                    : '${createdAt.year.toString().padLeft(4, '0')}-${createdAt.month.toString().padLeft(2, '0')}-${createdAt.day.toString().padLeft(2, '0')}',
-                              ),
-                            ),
-                            const Divider(height: 1),
-                            const SizedBox.shrink(),
-                            const Divider(height: 1),
-                            FutureBuilder<
-                              DocumentSnapshot<Map<String, dynamic>>
-                            >(
-                              future: FirebaseFirestore.instance
-                                  .collection('parents')
-                                  .doc(parentId)
-                                  .collection('children')
-                                  .doc(childDoc.id)
-                                  .get(),
-                              builder: (context, childSnap) {
-                                if (!childSnap.hasData) {
-                                  return const SizedBox.shrink();
-                                }
-                                final childData = childSnap.data?.data() ?? {};
-                                final serviceEndDate =
-                                    (childData['service_end_date']
-                                            as Timestamp?)
-                                        ?.toDate();
-                                if (serviceEndDate == null) {
-                                  return const SizedBox.shrink();
-                                }
-                                final serviceEndText =
-                                    '${serviceEndDate.year.toString().padLeft(4, '0')}-${serviceEndDate.month.toString().padLeft(2, '0')}-${serviceEndDate.day.toString().padLeft(2, '0')}';
-                                final now = DateTime.now();
-                                final today = DateTime(
-                                  now.year,
-                                  now.month,
-                                  now.day,
+                            // SRS FR-PA-5.8: reminders 2 days and 1 day before due date.
+                            if ((daysLeft == 2 || daysLeft == 1) &&
+                                status == 'pending') {
+                              final notifId =
+                                  'billing_${childDoc.id}_${dueText}_${daysLeft}d';
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                notificationService.createUnique(
+                                  notificationId: notifId,
+                                  userId: parentId,
+                                  type: 'billing',
+                                  message:
+                                      'Payment due in $daysLeft day(s) for ${(child['child_name'] ?? 'child').toString()}',
                                 );
-                                final daysUntilExpiry = serviceEndDate
-                                    .difference(today)
-                                    .inDays;
-                                return ListTile(
-                                  title: const Text('Service End Date'),
-                                  subtitle: Text(serviceEndText),
-                                  trailing:
-                                      daysUntilExpiry <= 7 &&
-                                          daysUntilExpiry > 0
-                                      ? Text(
-                                          '$daysUntilExpiry days left',
-                                          style: TextStyle(
-                                            color: daysUntilExpiry <= 2
-                                                ? Colors.red
-                                                : Colors.orange,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        )
-                                      : daysUntilExpiry <= 0
-                                      ? const Text(
-                                          'Expired',
-                                          style: TextStyle(
-                                            color: Colors.red,
-                                            fontWeight: FontWeight.bold,
-                                          ),
+                              });
+                            }
+                          }
+
+                          return Card(
+                            child: Column(
+                              children: [
+                                ListTile(
+                                  title: const Text('Payment Status'),
+                                  subtitle: Text(status),
+                                  trailing: status == 'completed'
+                                      ? Icon(
+                                          Icons.check_circle,
+                                          color: Colors.green.shade600,
                                         )
                                       : null,
-                                );
-                              },
+                                ),
+                                const Divider(height: 1),
+                                ListTile(
+                                  title: const Text('Amount'),
+                                  subtitle: Text('RM $amount'),
+                                ),
+                                const Divider(height: 1),
+                                if (method.isNotEmpty)
+                                  ListTile(
+                                    title: const Text('Payment Method'),
+                                    subtitle: Text(method),
+                                  ),
+                                if (method.isNotEmpty) const Divider(height: 1),
+                                if (cardLast4.isNotEmpty)
+                                  ListTile(
+                                    title: const Text('Card Last 4'),
+                                    subtitle: Text(cardLast4),
+                                  ),
+                                if (cardLast4.isNotEmpty)
+                                  const Divider(height: 1),
+                                if (nameOnCard.isNotEmpty)
+                                  ListTile(
+                                    title: const Text('Name on Card'),
+                                    subtitle: Text(nameOnCard),
+                                  ),
+                                if (nameOnCard.isNotEmpty)
+                                  const Divider(height: 1),
+                                ListTile(
+                                  title: const Text('Last Payment Date'),
+                                  subtitle: Text(
+                                    createdAt == null
+                                        ? 'N/A'
+                                        : '${createdAt.year.toString().padLeft(4, '0')}-${createdAt.month.toString().padLeft(2, '0')}-${createdAt.day.toString().padLeft(2, '0')}',
+                                  ),
+                                ),
+                                const Divider(height: 1),
+                                const SizedBox.shrink(),
+                                const Divider(height: 1),
+                                FutureBuilder<
+                                  DocumentSnapshot<Map<String, dynamic>>
+                                >(
+                                  future: FirebaseFirestore.instance
+                                      .collection('parents')
+                                      .doc(parentId)
+                                      .collection('children')
+                                      .doc(childDoc.id)
+                                      .get(),
+                                  builder: (context, childSnap) {
+                                    if (!childSnap.hasData) {
+                                      return const SizedBox.shrink();
+                                    }
+                                    final childData =
+                                        childSnap.data?.data() ?? {};
+                                    final serviceEndDate =
+                                        (childData['service_end_date']
+                                                as Timestamp?)
+                                            ?.toDate();
+                                    if (serviceEndDate == null) {
+                                      return const SizedBox.shrink();
+                                    }
+                                    final serviceEndText =
+                                        '${serviceEndDate.year.toString().padLeft(4, '0')}-${serviceEndDate.month.toString().padLeft(2, '0')}-${serviceEndDate.day.toString().padLeft(2, '0')}';
+                                    final now = DateTime.now();
+                                    final today = DateTime(
+                                      now.year,
+                                      now.month,
+                                      now.day,
+                                    );
+                                    final daysUntilExpiry = serviceEndDate
+                                        .difference(today)
+                                        .inDays;
+                                    return ListTile(
+                                      title: const Text('Service End Date'),
+                                      subtitle: Text(serviceEndText),
+                                      trailing:
+                                          daysUntilExpiry <= 7 &&
+                                              daysUntilExpiry > 0
+                                          ? Text(
+                                              '$daysUntilExpiry days left',
+                                              style: TextStyle(
+                                                color: daysUntilExpiry <= 2
+                                                    ? Colors.red
+                                                    : Colors.orange,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            )
+                                          : daysUntilExpiry <= 0
+                                          ? const Text(
+                                              'Expired',
+                                              style: TextStyle(
+                                                color: Colors.red,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            )
+                                          : null,
+                                    );
+                                  },
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ],
-
-                const SizedBox(height: 12),
-                StreamBuilder(
-                  stream: notificationService.streamForUser(parentId),
-                  builder: (context, notifSnap) {
-                    final docs = (notifSnap.data as dynamic)?.docs as List?;
-                    if (docs == null) return const SizedBox.shrink();
-                    if (docs.isEmpty) {
-                      return const Text('No notifications yet.');
-                    }
-                    return Card(
-                      child: ListView.separated(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: docs.length,
-                        separatorBuilder: (context, index) =>
-                            const Divider(height: 1),
-                        itemBuilder: (context, i) {
-                          final d = docs[i];
-                          final m = (d.data() as Map).cast<String, dynamic>();
-                          final type = (m['type'] ?? '').toString();
-                          final message = (m['message'] ?? '').toString();
-                          final read = (m['read'] == true);
-                          return ListTile(
-                            title: Text(
-                              message.isEmpty ? '(no message)' : message,
-                            ),
-                            subtitle: type.isEmpty ? null : Text(type),
-                            trailing: read
-                                ? null
-                                : const Icon(Icons.circle, size: 10),
-                            onTap: () => notificationService.markRead(d.id),
                           );
                         },
                       ),
-                    );
-                  },
-                ),
+                    ],
 
-                const SizedBox(height: 18),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      await auth.signOut();
-                    },
-                    icon: const Icon(Icons.logout),
-                    label: const Text('Logout'),
-                  ),
-                ),
-              ],
+                    const SizedBox(height: 12),
+                    StreamBuilder(
+                      stream: notificationService.streamForUser(parentId),
+                      builder: (context, notifSnap) {
+                        final docs = (notifSnap.data as dynamic)?.docs as List?;
+                        if (docs == null) return const SizedBox.shrink();
+                        if (docs.isEmpty) {
+                          return const Text('No notifications yet.');
+                        }
+                        return Card(
+                          child: ListView.separated(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: docs.length,
+                            separatorBuilder: (context, index) =>
+                                const Divider(height: 1),
+                            itemBuilder: (context, i) {
+                              final d = docs[i];
+                              final m = (d.data() as Map)
+                                  .cast<String, dynamic>();
+                              final type = (m['type'] ?? '').toString();
+                              final message = (m['message'] ?? '').toString();
+                              final read = (m['read'] == true);
+                              return ListTile(
+                                title: Text(
+                                  message.isEmpty ? '(no message)' : message,
+                                ),
+                                subtitle: type.isEmpty ? null : Text(type),
+                                trailing: read
+                                    ? null
+                                    : const Icon(Icons.circle, size: 10),
+                                onTap: () => notificationService.markRead(d.id),
+                              );
+                            },
+                          ),
+                        );
+                      },
+                    ),
+
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          await auth.signOut();
+                        },
+                        icon: const Icon(Icons.logout),
+                        label: const Text('Logout'),
+                      ),
+                    ),
+                  ],
+                );
+              },
             );
           },
         );

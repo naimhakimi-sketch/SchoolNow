@@ -37,10 +37,28 @@ class ParentService {
 
       // Update all children with new pickup location
       for (final childDoc in childrenSnap.docs) {
+        final childId = childDoc.id;
+        final childData = childDoc.data();
+        final assignedDriverId =
+            (childData['assigned_driver_id'] as String?) ?? '';
+
         batch.update(childDoc.reference, {
           'pickup_location': patch['pickup_location'],
           'updated_at': FieldValue.serverTimestamp(),
         });
+
+        // Also update the driver's cached student record if assigned
+        if (assignedDriverId.isNotEmpty) {
+          final driverStudentRef = _db
+              .collection('drivers')
+              .doc(assignedDriverId)
+              .collection('students')
+              .doc(childId);
+          batch.update(driverStudentRef, {
+            'pickup_location': patch['pickup_location'],
+            'updated_at': FieldValue.serverTimestamp(),
+          });
+        }
       }
 
       await batch.commit();
