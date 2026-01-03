@@ -90,7 +90,7 @@ class _LoginPageState extends State<LoginPage> {
                 // Logo
                 Center(
                   child: Image.asset(
-                    'launcher/foreground.png',
+                    'assets/launcher/foreground.png',
                     width: 120,
                     height: 120,
                     fit: BoxFit.contain,
@@ -99,7 +99,7 @@ class _LoginPageState extends State<LoginPage> {
                 const SizedBox(height: 24),
                 // Title
                 Image.asset(
-                  'launcher/title.png',
+                  'assets/launcher/title.png',
                   height: 60,
                   fit: BoxFit.contain,
                 ),

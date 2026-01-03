@@ -106,7 +106,9 @@ class _LoginPageState extends State<LoginPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Row(children: [Image.asset('launcher/title.png', height: 36)]),
+        title: Row(
+          children: [Image.asset('assets/launcher/title.png', height: 36)],
+        ),
         centerTitle: false,
         elevation: 0,
       ),
@@ -125,7 +127,7 @@ class _LoginPageState extends State<LoginPage> {
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Image.asset(
-                    'launcher/foreground.png',
+                    'assets/launcher/foreground.png',
                     height: 100,
                     width: 100,
                   ),

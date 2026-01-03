@@ -38,7 +38,7 @@ class _HomePageState extends State<HomePage> {
         if (childrenSnap == null || childrenSnap.docs.isEmpty) {
           return Scaffold(
             appBar: AppBar(
-              title: Image.asset('launcher/title.png', height: 40),
+              title: Image.asset('assets/launcher/title.png', height: 40),
               centerTitle: false,
               elevation: 0,
             ),
@@ -104,7 +104,7 @@ class _HomePageState extends State<HomePage> {
 
         return Scaffold(
           appBar: AppBar(
-            title: Image.asset('launcher/title.png', height: 40),
+            title: Image.asset('assets/launcher/title.png', height: 40),
             centerTitle: false,
             elevation: 0,
             actions: [

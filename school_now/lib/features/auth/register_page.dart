@@ -107,7 +107,7 @@ class _RegisterPageState extends State<RegisterPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Image.asset('launcher/title.png', height: 40),
+        title: Image.asset('assets/launcher/title.png', height: 40),
         centerTitle: false,
         elevation: 0,
       ),
