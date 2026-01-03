@@ -105,62 +105,166 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('SchoolNow')),
+      appBar: AppBar(
+        title: Row(
+          children: [Image.asset('assets/launcher/title.png', height: 36)],
+        ),
+        elevation: 0,
+      ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         children: [
-          Text('Parent Login', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _emailController,
-            decoration: const InputDecoration(labelText: 'Email'),
-            keyboardType: TextInputType.emailAddress,
+          const SizedBox(height: 16),
+          // Logo Section
+          Center(
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Image.asset(
+                    'assets/launcher/foreground.png',
+                    height: 100,
+                    width: 100,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'Welcome Back',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Login to your account',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
+                ),
+              ],
+            ),
           ),
-          TextField(
-            controller: _passwordController,
-            decoration: const InputDecoration(labelText: 'Password'),
-            obscureText: true,
+          const SizedBox(height: 32),
+          // Parent Login Section
+          Text(
+            'Parent Login',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: Colors.black87,
+            ),
           ),
           const SizedBox(height: 12),
+          TextField(
+            controller: _emailController,
+            decoration: InputDecoration(
+              labelText: 'Email',
+              prefixIcon: const Icon(Icons.email_outlined),
+              labelStyle: TextStyle(color: Colors.grey[600]),
+            ),
+            keyboardType: TextInputType.emailAddress,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _passwordController,
+            decoration: InputDecoration(
+              labelText: 'Password',
+              prefixIcon: const Icon(Icons.lock_outlined),
+              labelStyle: TextStyle(color: Colors.grey[600]),
+            ),
+            obscureText: true,
+          ),
+          const SizedBox(height: 20),
           SizedBox(
             width: double.infinity,
+            height: 48,
             child: ElevatedButton(
               onPressed: _loading ? null : _signInParent,
               child: _loading
-                  ? const CircularProgressIndicator()
-                  : const Text('Login'),
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation(Colors.black87),
+                      ),
+                    )
+                  : const Text(
+                      'Login',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
             ),
           ),
-          const SizedBox(height: 24),
-          Text('Student Login', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
+          const SizedBox(height: 32),
+          // Student Login Section
+          Text(
+            'Student Login',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: Colors.black87,
+            ),
+          ),
+          const SizedBox(height: 12),
           TextField(
             controller: _childIcController,
-            decoration: const InputDecoration(labelText: 'Child IC'),
+            decoration: InputDecoration(
+              labelText: 'Child IC / Student ID',
+              prefixIcon: const Icon(Icons.person_outlined),
+              labelStyle: TextStyle(color: Colors.grey[600]),
+            ),
           ),
+          const SizedBox(height: 12),
           TextField(
             controller: _studentPasswordController,
-            decoration: const InputDecoration(labelText: 'Parent Password'),
+            decoration: InputDecoration(
+              labelText: 'Parent Password',
+              prefixIcon: const Icon(Icons.lock_outlined),
+              labelStyle: TextStyle(color: Colors.grey[600]),
+            ),
             obscureText: true,
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 20),
           SizedBox(
             width: double.infinity,
+            height: 48,
             child: OutlinedButton(
               onPressed: _loading ? null : _signInStudentMode,
-              child: const Text('Login as Student'),
-            ),
-          ),
-          const SizedBox(height: 12),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                _error!,
-                style: TextStyle(color: Colors.red.shade700),
+              child: const Text(
+                'Login as Student',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
               ),
             ),
-          const SizedBox(height: 18),
+          ),
+          const SizedBox(height: 20),
+          if (_error != null)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.red[300]!, width: 1),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.error_outline, color: Colors.red[700]),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      _error!,
+                      style: TextStyle(color: Colors.red[700], fontSize: 14),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          const SizedBox(height: 20),
           TextButton(
             onPressed: _loading
                 ? null
@@ -169,8 +273,12 @@ class _LoginPageState extends State<LoginPage> {
                       MaterialPageRoute(builder: (_) => const RegisterPage()),
                     );
                   },
-            child: const Text('Create Parent Account'),
+            child: const Text(
+              "Don't have an account? Create one",
+              style: TextStyle(fontSize: 14),
+            ),
           ),
+          const SizedBox(height: 20),
         ],
       ),
     );

@@ -63,7 +63,9 @@ class _RegisterPageState extends State<RegisterPage> {
 
       if (!mounted) return;
       // Immediately prompt to add a child (SRS FR-PA-1.2).
-      Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const AddChildPage()));
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const AddChildPage()),
+      );
     } catch (e) {
       setState(() {
         _error = 'Registration failed: $e';
@@ -104,46 +106,153 @@ class _RegisterPageState extends State<RegisterPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Parent Registration')),
+      appBar: AppBar(title: const Text('Create Account'), elevation: 0),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         children: [
-          TextField(controller: _icController, decoration: const InputDecoration(labelText: 'IC Number')),
-          TextField(controller: _nameController, decoration: const InputDecoration(labelText: 'Name')),
-          TextField(
-            controller: _emailController,
-            decoration: const InputDecoration(labelText: 'Email'),
-            keyboardType: TextInputType.emailAddress,
+          const SizedBox(height: 16),
+          Text(
+            'Register as Parent',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
           ),
-          TextField(
-            controller: _contactController,
-            decoration: const InputDecoration(labelText: 'Contact'),
-            keyboardType: TextInputType.phone,
+          const SizedBox(height: 8),
+          Text(
+            'Fill in your details to create an account',
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
           ),
-          TextField(controller: _addressController, decoration: const InputDecoration(labelText: 'Home Address (Pickup Point)')),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: _loading ? null : _pickPickupPoint,
-              icon: const Icon(Icons.home),
-              label: Text(
-                _pickupLat != null && _pickupLng != null ? 'Pickup point selected' : 'Pick pickup point on map',
-              ),
+          const SizedBox(height: 24),
+          TextField(
+            controller: _icController,
+            decoration: InputDecoration(
+              labelText: 'IC Number',
+              prefixIcon: const Icon(Icons.person_outline),
+              labelStyle: TextStyle(color: Colors.grey[600]),
             ),
           ),
           const SizedBox(height: 12),
-          TextField(controller: _passwordController, decoration: const InputDecoration(labelText: 'Password'), obscureText: true),
-          TextField(controller: _confirmController, decoration: const InputDecoration(labelText: 'Confirm Password'), obscureText: true),
-          const SizedBox(height: 16),
-          if (_error != null) Text(_error!, style: TextStyle(color: Colors.red.shade700)),
-          const SizedBox(height: 8),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _loading ? null : _register,
-              child: _loading ? const CircularProgressIndicator() : const Text('Register'),
+          TextField(
+            controller: _nameController,
+            decoration: InputDecoration(
+              labelText: 'Full Name',
+              prefixIcon: const Icon(Icons.person_outline),
+              labelStyle: TextStyle(color: Colors.grey[600]),
             ),
           ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _emailController,
+            decoration: InputDecoration(
+              labelText: 'Email',
+              prefixIcon: const Icon(Icons.email_outlined),
+              labelStyle: TextStyle(color: Colors.grey[600]),
+            ),
+            keyboardType: TextInputType.emailAddress,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _contactController,
+            decoration: InputDecoration(
+              labelText: 'Contact Number',
+              prefixIcon: const Icon(Icons.phone_outlined),
+              labelStyle: TextStyle(color: Colors.grey[600]),
+            ),
+            keyboardType: TextInputType.phone,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _addressController,
+            decoration: InputDecoration(
+              labelText: 'Home Address (Pickup Point)',
+              prefixIcon: const Icon(Icons.home_outlined),
+              labelStyle: TextStyle(color: Colors.grey[600]),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextButton.icon(
+            onPressed: _loading ? null : _pickPickupPoint,
+            icon: const Icon(Icons.location_on),
+            label: Text(
+              _pickupLat != null && _pickupLng != null
+                  ? '✓ Location selected on map'
+                  : 'Pick location on map',
+              style: const TextStyle(fontSize: 14),
+            ),
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFFECCC6E),
+            ),
+          ),
+          const SizedBox(height: 20),
+          TextField(
+            controller: _passwordController,
+            decoration: InputDecoration(
+              labelText: 'Password',
+              prefixIcon: const Icon(Icons.lock_outlined),
+              labelStyle: TextStyle(color: Colors.grey[600]),
+            ),
+            obscureText: true,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _confirmController,
+            decoration: InputDecoration(
+              labelText: 'Confirm Password',
+              prefixIcon: const Icon(Icons.lock_outlined),
+              labelStyle: TextStyle(color: Colors.grey[600]),
+            ),
+            obscureText: true,
+          ),
+          const SizedBox(height: 24),
+          if (_error != null)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.red[300]!, width: 1),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.error_outline, color: Colors.red[700]),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      _error!,
+                      style: TextStyle(color: Colors.red[700], fontSize: 14),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton(
+              onPressed: _loading ? null : _register,
+              child: _loading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation(Colors.black87),
+                      ),
+                    )
+                  : const Text(
+                      'Create Account',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 20),
         ],
       ),
     );

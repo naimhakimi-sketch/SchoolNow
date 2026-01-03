@@ -12,10 +12,7 @@ import '../student/student_page.dart';
 class HomePage extends StatefulWidget {
   final String parentId;
 
-  const HomePage({
-    super.key,
-    required this.parentId,
-  });
+  const HomePage({super.key, required this.parentId});
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -32,20 +29,50 @@ class _HomePageState extends State<HomePage> {
       stream: _parentService.streamChildren(widget.parentId),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
-          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
         }
 
         final childrenSnap = snap.data;
         if (childrenSnap == null || childrenSnap.docs.isEmpty) {
           return Scaffold(
-            appBar: AppBar(title: const Text('SchoolNow')),
-            body: const Center(child: Text('No child added yet.')),
-            floatingActionButton: FloatingActionButton.extended(
-              onPressed: () {
-                Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AddChildPage()));
-              },
-              icon: const Icon(Icons.person_add),
-              label: const Text('Add Child'),
+            appBar: AppBar(title: const Text('SchoolNow'), elevation: 0),
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.person_add_outlined,
+                    size: 80,
+                    color: Colors.grey[400],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No children added yet',
+                    style: Theme.of(
+                      context,
+                    ).textTheme.titleLarge?.copyWith(color: Colors.black87),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Add your first child to get started',
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
+                  ),
+                  const SizedBox(height: 24),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const AddChildPage()),
+                      );
+                    },
+                    icon: const Icon(Icons.person_add_outlined),
+                    label: const Text('Add Child'),
+                  ),
+                ],
+              ),
             ),
           );
         }
@@ -53,7 +80,8 @@ class _HomePageState extends State<HomePage> {
         _selectedChildId ??= childrenSnap.docs.first.id;
 
         final selectedChildId = _selectedChildId;
-        QueryDocumentSnapshot<Map<String, dynamic>> selectedChild = childrenSnap.docs.first;
+        QueryDocumentSnapshot<Map<String, dynamic>> selectedChild =
+            childrenSnap.docs.first;
         if (selectedChildId != null) {
           for (final d in childrenSnap.docs) {
             if (d.id == selectedChildId) {
@@ -73,6 +101,7 @@ class _HomePageState extends State<HomePage> {
         return Scaffold(
           appBar: AppBar(
             title: const Text('SchoolNow'),
+            elevation: 0,
             actions: [
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -96,11 +125,29 @@ class _HomePageState extends State<HomePage> {
           bottomNavigationBar: NavigationBar(
             selectedIndex: _index,
             onDestinationSelected: (i) => setState(() => _index = i),
+            indicatorColor: const Color(0xFFECCC6E),
+            backgroundColor: Colors.white,
             destinations: const [
-              NavigationDestination(icon: Icon(Icons.directions_bus), label: 'Drivers'),
-              NavigationDestination(icon: Icon(Icons.map), label: 'Monitor'),
-              NavigationDestination(icon: Icon(Icons.qr_code), label: 'Student'),
-              NavigationDestination(icon: Icon(Icons.person), label: 'Profile'),
+              NavigationDestination(
+                icon: Icon(Icons.directions_bus_outlined),
+                selectedIcon: Icon(Icons.directions_bus_filled),
+                label: 'Drivers',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.map_outlined),
+                selectedIcon: Icon(Icons.map),
+                label: 'Monitor',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.qr_code_outlined),
+                selectedIcon: Icon(Icons.qr_code),
+                label: 'Student',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.person_outlined),
+                selectedIcon: Icon(Icons.person),
+                label: 'Profile',
+              ),
             ],
           ),
         );

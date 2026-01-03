@@ -42,6 +42,24 @@ class MonitorPage extends StatefulWidget {
     };
   }
 
+  static Color _statusColor(BoardingStatus s) {
+    return switch (s) {
+      BoardingStatus.notBoarded => const Color(0xFFE74C3C), // Red
+      BoardingStatus.boarded => const Color(0xFFF39C12), // Orange
+      BoardingStatus.alighted => const Color(0xFF27AE60), // Green
+      BoardingStatus.absent => const Color(0xFF95A5A6), // Gray
+    };
+  }
+
+  static IconData _statusIcon(BoardingStatus s) {
+    return switch (s) {
+      BoardingStatus.notBoarded => Icons.pending_outlined,
+      BoardingStatus.boarded => Icons.directions_bus_filled,
+      BoardingStatus.alighted => Icons.check_circle_outline,
+      BoardingStatus.absent => Icons.cancel_outlined,
+    };
+  }
+
   static LatLng? _pickupFromParent(Map<String, dynamic>? parent) {
     if (parent == null) return null;
     final lat = (parent['pickup_lat'] as num?)?.toDouble();
@@ -299,6 +317,19 @@ class _MonitorPageState extends State<MonitorPage> {
     required ValueChanged<bool> onAttendanceChanged,
     required String statusText,
   }) {
+    // Extract status from statusText (format: "Status: <status>")
+    final statusLabelText = statusText.replaceFirst('Status: ', '');
+    final status = switch (statusLabelText) {
+      'Not Boarded' => BoardingStatus.notBoarded,
+      'Boarded' => BoardingStatus.boarded,
+      'Arrived' => BoardingStatus.alighted,
+      'Absent' => BoardingStatus.absent,
+      _ => BoardingStatus.notBoarded,
+    };
+
+    final statusColor = MonitorPage._statusColor(status);
+    final statusIcon = MonitorPage._statusIcon(status);
+
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -306,22 +337,59 @@ class _MonitorPageState extends State<MonitorPage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Card(
+              elevation: 2,
               child: SwitchListTile(
-                title: const Text('Attending today'),
+                title: const Text(
+                  'Attending today',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
                 subtitle: const Text('Set to Absent if not riding today'),
                 value: attending,
                 onChanged: onAttendanceChanged,
+                activeColor: const Color(0xFFECCC6E),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             Card(
+              elevation: 2,
+              color: statusColor.withOpacity(0.1),
               child: Padding(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(16),
                 child: Row(
                   children: [
-                    const Icon(Icons.info_outline),
-                    const SizedBox(width: 8),
-                    Expanded(child: Text(statusText)),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: statusColor,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(statusIcon, color: Colors.white, size: 28),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Current Status',
+                            style: TextStyle(
+                              color: Colors.grey[600],
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            statusLabelText,
+                            style: TextStyle(
+                              color: statusColor,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),

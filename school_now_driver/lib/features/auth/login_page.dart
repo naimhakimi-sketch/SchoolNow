@@ -78,7 +78,7 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFECCC6E),
       body: SafeArea(
         child: SingleChildScrollView(
           child: Padding(
@@ -98,14 +98,10 @@ class _LoginPageState extends State<LoginPage> {
                 ),
                 const SizedBox(height: 24),
                 // Title
-                const Text(
-                  'SchoolNow Driver',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF2C2C2C),
-                  ),
-                  textAlign: TextAlign.center,
+                Image.asset(
+                  'launcher/title.png',
+                  height: 60,
+                  fit: BoxFit.contain,
                 ),
                 const SizedBox(height: 8),
                 const Text(
@@ -216,6 +212,13 @@ class _LoginPageState extends State<LoginPage> {
                   child: !_showDemoMode
                       ? ElevatedButton(
                           onPressed: _loading ? null : _login,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF814256),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
                           child: _loading
                               ? const SizedBox(
                                   width: 20,
@@ -223,7 +226,7 @@ class _LoginPageState extends State<LoginPage> {
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
                                     valueColor: AlwaysStoppedAnimation<Color>(
-                                      Color(0xFF2C2C2C),
+                                      Colors.white,
                                     ),
                                   ),
                                 )
@@ -237,6 +240,13 @@ class _LoginPageState extends State<LoginPage> {
                         )
                       : ElevatedButton.icon(
                           onPressed: _loading ? null : _demoLogin,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF814256),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
                           icon: const Icon(Icons.bug_report),
                           label: _loading
                               ? const SizedBox(
@@ -245,7 +255,7 @@ class _LoginPageState extends State<LoginPage> {
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
                                     valueColor: AlwaysStoppedAnimation<Color>(
-                                      Color(0xFF2C2C2C),
+                                      Colors.white,
                                     ),
                                   ),
                                 )
@@ -268,8 +278,9 @@ class _LoginPageState extends State<LoginPage> {
                       const Text(
                         'Don\'t have an account? ',
                         style: TextStyle(
-                          color: Color(0xFF999999),
+                          color: Color(0xFF2C2C2C),
                           fontSize: 14,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                       TextButton(
@@ -285,7 +296,7 @@ class _LoginPageState extends State<LoginPage> {
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
-                            color: Color(0xFFECCC6E),
+                            color: Color(0xFF814256),
                           ),
                         ),
                       ),
@@ -307,10 +318,15 @@ class _LoginPageState extends State<LoginPage> {
                           ? Icons.bug_report
                           : Icons.bug_report_outlined,
                       size: 16,
+                      color: const Color(0xFF2C2C2C),
                     ),
                     label: Text(
                       _showDemoMode ? 'Exit Demo Mode' : 'Demo Mode',
-                      style: const TextStyle(fontSize: 12),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF2C2C2C),
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ),
                 ),
