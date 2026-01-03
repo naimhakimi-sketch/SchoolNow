@@ -839,14 +839,13 @@ class _MonitorPageState extends State<MonitorPage> {
                 .toString();
             final attending = override != 'absent';
 
-            return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-              future: FirebaseFirestore.instance
+            return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
                   .collection('drivers')
                   .doc(assignedDriver)
-                  .get(),
+                  .snapshots(),
               builder: (context, driverSnap) {
-                final driver =
-                    driverSnap.data?.data() ?? const <String, dynamic>{};
+                final driver = driverSnap.data?.data() ?? const <String, dynamic>{};
                 debugPrint('Monitor: driver doc keys=${driver.keys.toList()}');
                 final tripId = (driver['active_trip_id'] ?? '').toString();
                 debugPrint('Monitor: driver active_trip_id=$tripId');
@@ -932,11 +931,11 @@ class _MonitorPageState extends State<MonitorPage> {
                   );
                 }
 
-                return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                  future: FirebaseFirestore.instance
+                return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  stream: FirebaseFirestore.instance
                       .collection('trips')
                       .doc(tripId)
-                      .get(),
+                      .snapshots(),
                   builder: (context, tripSnap) {
                     final trip = tripSnap.data?.data();
                     if (trip == null) {
