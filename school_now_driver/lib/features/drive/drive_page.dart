@@ -299,17 +299,26 @@ class _DrivePageState extends State<DrivePage> {
             ? 'primary'
             : 'secondary';
         final filtered = <String>[];
+
+        // Get the students collection data to check school_id and school type
+        final studentsSnap = await FirebaseFirestore.instance
+            .collection('drivers')
+            .doc(widget.driverId)
+            .collection('students')
+            .get();
+        final studentDataMap = {
+          for (final doc in studentsSnap.docs) doc.id: doc.data(),
+        };
+
         for (final studentId in studentIds) {
           try {
-            final docs = await FirebaseFirestore.instance
-                .collectionGroup('children')
-                .where(FieldPath.documentId, isEqualTo: studentId)
-                .limit(1)
-                .get();
-            if (docs.docs.isEmpty) continue;
-            final studentData = docs.docs.first.data();
+            // Use driver's students collection data
+            final studentData = studentDataMap[studentId];
+            if (studentData == null) continue;
+
             final schoolId = (studentData['school_id'] ?? '').toString();
             if (schoolId.isEmpty) continue;
+
             final schoolDoc = await FirebaseFirestore.instance
                 .collection('schools')
                 .doc(schoolId)

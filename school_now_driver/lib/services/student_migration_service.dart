@@ -7,6 +7,7 @@ class StudentMigrationService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   /// Migrates all students in a driver's collection to add trip_type field if missing.
+  /// Also syncs trip_type to parent's children collection.
   /// Returns the number of students updated.
   Future<int> migrateDriverStudents(String driverId) async {
     try {
@@ -20,19 +21,61 @@ class StudentMigrationService {
 
       for (final doc in snapshot.docs) {
         final data = doc.data();
+        final studentId = doc.id;
+        final parentId = (data['parent_id'] ?? '').toString();
         final hasTripType =
             data.containsKey('trip_type') &&
             (data['trip_type'] ?? '').toString().isNotEmpty;
 
         if (!hasTripType) {
-          await studentsRef.doc(doc.id).set({
-            'trip_type': 'both', // Default to both for existing students
+          // Try to get trip_type from parent's children collection first
+          String tripTypeToSet = 'both';
+          try {
+            if (parentId.isNotEmpty) {
+              final parentChildSnap = await _db
+                  .collection('parents')
+                  .doc(parentId)
+                  .collection('children')
+                  .doc(studentId)
+                  .get();
+              if (parentChildSnap.exists) {
+                final parentTripType =
+                    (parentChildSnap.data()?['trip_type'] ?? 'both').toString();
+                if (parentTripType.isNotEmpty) {
+                  tripTypeToSet = parentTripType;
+                }
+              }
+            }
+          } catch (_) {
+            // If parent sync fails, default to 'both'
+          }
+
+          await studentsRef.doc(studentId).set({
+            'trip_type': tripTypeToSet,
             'updated_at': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
           updatedCount++;
           debugPrint(
-            'Migrated student $driverId/${doc.id} - set trip_type to both',
+            'Migrated student $driverId/$studentId - set trip_type to $tripTypeToSet',
           );
+
+          // Sync trip_type back to parent's children collection if parent exists
+          if (parentId.isNotEmpty) {
+            try {
+              await _db
+                  .collection('parents')
+                  .doc(parentId)
+                  .collection('children')
+                  .doc(studentId)
+                  .set({
+                    'trip_type': tripTypeToSet,
+                    'updated_at': FieldValue.serverTimestamp(),
+                  }, SetOptions(merge: true));
+              debugPrint('Synced trip_type to parent $parentId/$studentId');
+            } catch (e) {
+              debugPrint('Failed to sync to parent children: $e');
+            }
+          }
         }
       }
 
@@ -45,6 +88,7 @@ class StudentMigrationService {
   }
 
   /// Migrates all children in a parent's collection to add trip_type field if missing.
+  /// Also syncs trip_type to driver's students collection.
   /// This updates the parent's children subcollection.
   Future<int> migrateParentChildren(String parentId) async {
     try {
@@ -59,6 +103,7 @@ class StudentMigrationService {
       for (final doc in snapshot.docs) {
         final data = doc.data();
         final assignedDriver = (data['assigned_driver_id'] ?? '').toString();
+        final studentId = doc.id;
 
         // Only update children that are already assigned to a driver
         if (assignedDriver.isNotEmpty) {
@@ -67,14 +112,53 @@ class StudentMigrationService {
               (data['trip_type'] ?? '').toString().isNotEmpty;
 
           if (!hasTripType) {
-            await childrenRef.doc(doc.id).set({
-              'trip_type': 'both', // Default to both for existing students
+            // Try to get trip_type from driver's students collection first
+            String tripTypeToSet = 'both';
+            try {
+              final driverStudentSnap = await _db
+                  .collection('drivers')
+                  .doc(assignedDriver)
+                  .collection('students')
+                  .doc(studentId)
+                  .get();
+              if (driverStudentSnap.exists) {
+                final driverTripType =
+                    (driverStudentSnap.data()?['trip_type'] ?? 'both')
+                        .toString();
+                if (driverTripType.isNotEmpty) {
+                  tripTypeToSet = driverTripType;
+                }
+              }
+            } catch (_) {
+              // If driver sync fails, default to 'both'
+            }
+
+            await childrenRef.doc(studentId).set({
+              'trip_type': tripTypeToSet,
               'updated_at': FieldValue.serverTimestamp(),
             }, SetOptions(merge: true));
             updatedCount++;
             debugPrint(
-              'Migrated child $parentId/${doc.id} - set trip_type to both',
+              'Migrated child $parentId/$studentId - set trip_type to $tripTypeToSet',
             );
+
+            // Sync trip_type back to driver's students collection
+            try {
+              await _db
+                  .collection('drivers')
+                  .doc(assignedDriver)
+                  .collection('students')
+                  .doc(studentId)
+                  .set({
+                    'trip_type': tripTypeToSet,
+                    'updated_at': FieldValue.serverTimestamp(),
+                  }, SetOptions(merge: true));
+              debugPrint(
+                'Synced trip_type to driver $assignedDriver/$studentId',
+              );
+            } catch (e) {
+              debugPrint('Failed to sync to driver students: $e');
+            }
           }
         }
       }

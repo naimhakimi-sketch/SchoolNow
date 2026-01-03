@@ -7,6 +7,7 @@ class StudentMigrationService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   /// Migrates all children in a parent's collection to add trip_type field if missing.
+  /// Also syncs trip_type from driver's students collection if available.
   /// This updates the parent's children subcollection.
   Future<int> migrateParentChildren(String parentId) async {
     try {
@@ -21,6 +22,7 @@ class StudentMigrationService {
       for (final doc in snapshot.docs) {
         final data = doc.data();
         final assignedDriver = (data['assigned_driver_id'] ?? '').toString();
+        final studentId = doc.id;
 
         // Only update children that are already assigned to a driver
         if (assignedDriver.isNotEmpty) {
@@ -29,13 +31,34 @@ class StudentMigrationService {
               (data['trip_type'] ?? '').toString().isNotEmpty;
 
           if (!hasTripType) {
-            await childrenRef.doc(doc.id).set({
-              'trip_type': 'both', // Default to both for existing students
+            // Try to get trip_type from driver's students collection first
+            String tripTypeToSet = 'both';
+            try {
+              final driverStudentSnap = await _db
+                  .collection('drivers')
+                  .doc(assignedDriver)
+                  .collection('students')
+                  .doc(studentId)
+                  .get();
+              if (driverStudentSnap.exists) {
+                final driverTripType =
+                    (driverStudentSnap.data()?['trip_type'] ?? 'both')
+                        .toString();
+                if (driverTripType.isNotEmpty) {
+                  tripTypeToSet = driverTripType;
+                }
+              }
+            } catch (_) {
+              // If driver sync fails, default to 'both'
+            }
+
+            await childrenRef.doc(studentId).set({
+              'trip_type': tripTypeToSet,
               'updated_at': FieldValue.serverTimestamp(),
             }, SetOptions(merge: true));
             updatedCount++;
             debugPrint(
-              'Migrated child $parentId/${doc.id} - set trip_type to both',
+              'Migrated child $parentId/$studentId - set trip_type to $tripTypeToSet',
             );
           }
         }

@@ -66,6 +66,8 @@ class _MonitorPageState extends State<MonitorPage> {
   final Map<String, String> _schoolTypes = {};
   final Map<String, String> _schoolNames = {};
 
+  Map<String, dynamic>? _operatorLocation;
+
   String? _routedKey;
   List<LatLng>? _routedPolyline;
   bool _routingInFlight = false;
@@ -421,6 +423,15 @@ class _MonitorPageState extends State<MonitorPage> {
     return MonitorPage._latLngFromMap(home);
   }
 
+  LatLng? _getOperatorLocation() {
+    final lat = _operatorLocation?['latitude'] as num?;
+    final lng = _operatorLocation?['longitude'] as num?;
+    if (lat != null && lng != null) {
+      return LatLng(lat.toDouble(), lng.toDouble());
+    }
+    return null;
+  }
+
   List<Map<String, dynamic>> _sortStopsByNearestNeighbor({
     required LatLng origin,
     required List<Map<String, dynamic>> stops,
@@ -523,16 +534,13 @@ class _MonitorPageState extends State<MonitorPage> {
     }
   }
 
-  LatLng? _getCachedOperatorLocation() {
-    return null;
-  }
-
   List<LatLng> _buildRoutePolylineStops({
     required String routeType,
     required Map<String, dynamic>? driverData,
     required LatLng? driverLivePoint,
     required List<Map<String, dynamic>> passengers,
     required Map<String, Map<String, dynamic>> studentById,
+    LatLng? operatorLocation,
   }) {
     final home = _driverHome(driverData);
     debugPrint(
@@ -762,7 +770,7 @@ class _MonitorPageState extends State<MonitorPage> {
         startNonNull,
         ...orderedSchools.map((e) => e['point'] as LatLng),
         ...orderedDropoffs.map((e) => e['point'] as LatLng),
-        (_getCachedOperatorLocation() ?? home) ?? startNonNull,
+        operatorLocation ?? home ?? startNonNull,
       ];
     }
   }
@@ -844,168 +852,68 @@ class _MonitorPageState extends State<MonitorPage> {
 
     return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       future: FirebaseFirestore.instance
-          .collection('parents')
-          .doc(widget.parentId)
+          .collection('settings')
+          .doc('operator')
           .get(),
-      builder: (context, parentSnap) {
-        final parent = parentSnap.data?.data() ?? const <String, dynamic>{};
-        final parentPickupLocation = MonitorPage._pickupFromParent(parent);
-        final notifications =
-            (parent['notifications'] as Map?)?.cast<String, dynamic>() ??
-            const <String, dynamic>{};
-        final proximityAlertEnabled = notifications['proximity_alert'] == true;
+      builder: (context, operatorSnap) {
+        // Cache operator location
+        if (operatorSnap.hasData && operatorSnap.data?.exists == true) {
+          _operatorLocation = operatorSnap.data?.data();
+        }
 
         return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          future: childRef.get(),
-          builder: (context, childSnap) {
-            final child = childSnap.data?.data() ?? widget.childDoc.data();
-            final assignedDriver = (child['assigned_driver_id'] ?? '')
-                .toString();
-            if (assignedDriver.isEmpty) {
-              return const Center(
-                child: Text(
-                  'No driver assigned. Go to Drivers to request one.',
-                ),
-              );
-            }
+          future: FirebaseFirestore.instance
+              .collection('parents')
+              .doc(widget.parentId)
+              .get(),
+          builder: (context, parentSnap) {
+            final parent = parentSnap.data?.data() ?? const <String, dynamic>{};
+            final parentPickupLocation = MonitorPage._pickupFromParent(parent);
+            final notifications =
+                (parent['notifications'] as Map?)?.cast<String, dynamic>() ??
+                const <String, dynamic>{};
+            final proximityAlertEnabled =
+                notifications['proximity_alert'] == true;
 
-            final override = (child['attendance_override'] ?? 'attending')
-                .toString();
-            final attending = override != 'absent';
-
-            return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance
-                  .collection('drivers')
-                  .doc(assignedDriver)
-                  .snapshots(),
-              builder: (context, driverSnap) {
-                final driver =
-                    driverSnap.data?.data() ?? const <String, dynamic>{};
-                debugPrint('Monitor: driver doc keys=${driver.keys.toList()}');
-                final tripId = (driver['active_trip_id'] ?? '').toString();
-                debugPrint('Monitor: driver active_trip_id=$tripId');
-
-                if (tripId.isEmpty) {
-                  final LatLng? pickup = MonitorPage._latLngFromMap(
-                    (child['pickup_location'] as Map?)?.cast<String, dynamic>(),
-                  );
-                  debugPrint(
-                    'Monitor: child pickup_location present=${pickup != null} assignedDriver=$assignedDriver',
-                  );
-
-                  return StreamBuilder<DatabaseEvent>(
-                    stream: _live.streamDriverLiveLocation(assignedDriver),
-                    builder: (context, driverLocSnap) {
-                      LatLng center = pickup ?? const LatLng(0, 0);
-                      LatLng? driverPoint;
-
-                      final val = driverLocSnap.data?.snapshot.value;
-                      if (val is Map) {
-                        final m = val.cast<Object?, Object?>();
-                        final lat = (m['lat'] as num?)?.toDouble();
-                        final lng = (m['lng'] as num?)?.toDouble();
-                        if (lat != null && lng != null) {
-                          driverPoint = LatLng(lat, lng);
-                          center = driverPoint;
-                          _maybeAutoCenterOnDriver(driverPoint);
-                        }
-                      }
-
-                      return Stack(
-                        children: [
-                          Positioned.fill(
-                            child: _buildMap(
-                              initialCenter: center,
-                              initialZoom: driverPoint != null ? 15 : 2,
-                              heroTag: 'monitor_center_no_trip',
-                              driverPoint: driverPoint,
-                              polylinePoints: const [],
-                              markers: [
-                                if (pickup != null)
-                                  Marker(
-                                    point: pickup,
-                                    width: 44,
-                                    height: 44,
-                                    child: const Icon(
-                                      Icons.home,
-                                      color: Colors.black87,
-                                      size: 34,
-                                    ),
-                                  ),
-                                if (driverPoint != null)
-                                  Marker(
-                                    point: driverPoint,
-                                    width: 44,
-                                    height: 44,
-                                    child: const Icon(
-                                      Icons.directions_bus,
-                                      color: Colors.blue,
-                                      size: 38,
-                                    ),
-                                  ),
-                              ],
-                              parentLocation: parentPickupLocation,
-                            ),
-                          ),
-                          Align(
-                            alignment: Alignment.topCenter,
-                            child: _buildOverlayPanels(
-                              attending: attending,
-                              onAttendanceChanged: (v) =>
-                                  _parentService.setAttendanceForToday(
-                                    parentId: widget.parentId,
-                                    childId: widget.childDoc.id,
-                                    attending: v,
-                                  ),
-                              statusText: 'Status: Not started',
-                            ),
-                          ),
-                        ],
-                      );
-                    },
+            return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+              future: childRef.get(),
+              builder: (context, childSnap) {
+                final child = childSnap.data?.data() ?? widget.childDoc.data();
+                final assignedDriver = (child['assigned_driver_id'] ?? '')
+                    .toString();
+                if (assignedDriver.isEmpty) {
+                  return const Center(
+                    child: Text(
+                      'No driver assigned. Go to Drivers to request one.',
+                    ),
                   );
                 }
 
+                final override = (child['attendance_override'] ?? 'attending')
+                    .toString();
+                final attending = override != 'absent';
+
                 return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                   stream: FirebaseFirestore.instance
-                      .collection('trips')
-                      .doc(tripId)
+                      .collection('drivers')
+                      .doc(assignedDriver)
                       .snapshots(),
-                  builder: (context, tripSnap) {
-                    final trip = tripSnap.data?.data();
-                    if (trip == null) {
-                      return const Center(child: Text('Trip not found'));
-                    }
-
-                    final routeType = (trip['route_type'] ?? 'morning')
-                        .toString();
-
-                    final passengers =
-                        (trip['passengers'] as List?)?.cast<Map>() ??
-                        const <Map>[];
-                    final p = passengers
-                        .map((e) => e.cast<String, dynamic>())
-                        .firstWhere(
-                          (x) =>
-                              (x['student_id'] ?? '').toString() ==
-                              widget.childDoc.id,
-                          orElse: () => const <String, dynamic>{},
-                        );
-                    final fallbackStatus = BoardingStatusCodec.fromJson(
-                      (p['status'] ?? 'not_boarded').toString(),
+                  builder: (context, driverSnap) {
+                    final driver =
+                        driverSnap.data?.data() ?? const <String, dynamic>{};
+                    debugPrint(
+                      'Monitor: driver doc keys=${driver.keys.toList()}',
                     );
+                    final tripId = (driver['active_trip_id'] ?? '').toString();
+                    debugPrint('Monitor: driver active_trip_id=$tripId');
 
-                    // If this trip does not include the monitored child, do not
-                    // show the trip route — fall back to simple live location.
-                    final isPassenger = passengers.any(
-                      (x) =>
-                          (x['student_id'] ?? '').toString() ==
-                          widget.childDoc.id,
-                    );
-                    if (!isPassenger) {
+                    if (tripId.isEmpty) {
                       final LatLng? pickup = MonitorPage._latLngFromMap(
                         (child['pickup_location'] as Map?)
                             ?.cast<String, dynamic>(),
+                      );
+                      debugPrint(
+                        'Monitor: child pickup_location present=${pickup != null} assignedDriver=$assignedDriver',
                       );
 
                       return StreamBuilder<DatabaseEvent>(
@@ -1081,431 +989,94 @@ class _MonitorPageState extends State<MonitorPage> {
                       );
                     }
 
-                    final statusRef = FirebaseDatabase.instance.ref(
-                      'boarding_status/$tripId/${widget.childDoc.id}',
-                    );
-
-                    return StreamBuilder<DatabaseEvent>(
-                      stream: statusRef.onValue,
-                      builder: (context, statusSnap) {
-                        BoardingStatus status = fallbackStatus;
-                        final raw = statusSnap.data?.snapshot.value;
-                        if (raw is Map) {
-                          final m = raw.cast<Object?, Object?>();
-                          final s = (m['status'] ?? '').toString();
-                          if (s.isNotEmpty) {
-                            status = BoardingStatusCodec.fromJson(s);
-                          }
+                    return StreamBuilder<
+                      DocumentSnapshot<Map<String, dynamic>>
+                    >(
+                      stream: FirebaseFirestore.instance
+                          .collection('trips')
+                          .doc(tripId)
+                          .snapshots(),
+                      builder: (context, tripSnap) {
+                        final trip = tripSnap.data?.data();
+                        if (trip == null) {
+                          return const Center(child: Text('Trip not found'));
                         }
 
-                        return StreamBuilder<DatabaseEvent>(
-                          stream: _live.streamLiveLocation(tripId),
-                          builder: (context, locSnap) {
-                            LatLng center = const LatLng(0, 0);
-                            LatLng? driverPoint;
+                        final routeType = (trip['route_type'] ?? 'morning')
+                            .toString();
 
-                            final val = locSnap.data?.snapshot.value;
-                            if (val is Map) {
-                              final m = val.cast<Object?, Object?>();
-                              final lat = (m['lat'] as num?)?.toDouble();
-                              final lng = (m['lng'] as num?)?.toDouble();
-                              if (lat != null && lng != null) {
-                                driverPoint = LatLng(lat, lng);
-                                center = driverPoint;
-                                _maybeAutoCenterOnDriver(driverPoint);
-                              }
-                            }
-
-                            final LatLng? pickup = MonitorPage._latLngFromMap(
-                              (child['pickup_location'] as Map?)
-                                  ?.cast<String, dynamic>(),
+                        final passengers =
+                            (trip['passengers'] as List?)?.cast<Map>() ??
+                            const <Map>[];
+                        final p = passengers
+                            .map((e) => e.cast<String, dynamic>())
+                            .firstWhere(
+                              (x) =>
+                                  (x['student_id'] ?? '').toString() ==
+                                  widget.childDoc.id,
+                              orElse: () => const <String, dynamic>{},
                             );
+                        final fallbackStatus = BoardingStatusCodec.fromJson(
+                          (p['status'] ?? 'not_boarded').toString(),
+                        );
 
-                            // If no trip-specific location yet, fall back to `live_locations/<driverId>`.
-                            if (driverPoint == null) {
-                              return StreamBuilder<DatabaseEvent>(
-                                stream: _live.streamDriverLiveLocation(
-                                  assignedDriver,
-                                ),
-                                builder: (context, driverLocSnap) {
-                                  LatLng fallbackCenter = center;
-                                  LatLng? fallbackDriverPoint;
+                        // If this trip does not include the monitored child, do not
+                        // show the trip route — fall back to simple live location.
+                        final isPassenger = passengers.any(
+                          (x) =>
+                              (x['student_id'] ?? '').toString() ==
+                              widget.childDoc.id,
+                        );
+                        if (!isPassenger) {
+                          final LatLng? pickup = MonitorPage._latLngFromMap(
+                            (child['pickup_location'] as Map?)
+                                ?.cast<String, dynamic>(),
+                          );
 
-                                  final raw =
-                                      driverLocSnap.data?.snapshot.value;
-                                  if (raw is Map) {
-                                    final m = raw.cast<Object?, Object?>();
-                                    final lat = (m['lat'] as num?)?.toDouble();
-                                    final lng = (m['lng'] as num?)?.toDouble();
-                                    if (lat != null && lng != null) {
-                                      fallbackDriverPoint = LatLng(lat, lng);
-                                      fallbackCenter = fallbackDriverPoint;
-                                      _maybeAutoCenterOnDriver(
-                                        fallbackDriverPoint,
-                                      );
-                                    }
-                                  }
+                          return StreamBuilder<DatabaseEvent>(
+                            stream: _live.streamDriverLiveLocation(
+                              assignedDriver,
+                            ),
+                            builder: (context, driverLocSnap) {
+                              LatLng center = pickup ?? const LatLng(0, 0);
+                              LatLng? driverPoint;
 
-                                  if (proximityAlertEnabled &&
-                                      pickup != null &&
-                                      fallbackDriverPoint != null) {
-                                    final meters = const Distance()(
-                                      pickup,
-                                      fallbackDriverPoint,
-                                    );
-                                    if (meters <= 200 &&
-                                        _proximityNotifiedTripId != tripId) {
-                                      _proximityNotifiedTripId = tripId;
-                                      final childName =
-                                          (child['child_name'] ?? 'Student')
-                                              .toString();
-                                      WidgetsBinding.instance.addPostFrameCallback((
-                                        _,
-                                      ) {
-                                        _notificationService.createUnique(
-                                          notificationId:
-                                              'proximity_${tripId}_${widget.childDoc.id}',
-                                          userId: widget.parentId,
-                                          type: 'proximity',
-                                          message:
-                                              'Driver is near pickup for $childName',
-                                        );
-                                      });
-                                    }
-                                  }
+                              final val = driverLocSnap.data?.snapshot.value;
+                              if (val is Map) {
+                                final m = val.cast<Object?, Object?>();
+                                final lat = (m['lat'] as num?)?.toDouble();
+                                final lng = (m['lng'] as num?)?.toDouble();
+                                if (lat != null && lng != null) {
+                                  driverPoint = LatLng(lat, lng);
+                                  center = driverPoint;
+                                  _maybeAutoCenterOnDriver(driverPoint);
+                                }
+                              }
 
-                                  return FutureBuilder<
-                                    QuerySnapshot<Map<String, dynamic>>
-                                  >(
-                                    future: FirebaseFirestore.instance
-                                        .collection('drivers')
-                                        .doc(assignedDriver)
-                                        .collection('students')
-                                        .get(),
-                                    builder: (context, studentsSnap) {
-                                      final docs =
-                                          studentsSnap.data?.docs ?? const [];
-                                      final studentById = {
-                                        for (final d in docs) d.id: d.data(),
-                                      };
-
-                                      final passengersList = passengers
-                                          .map((e) => e.cast<String, dynamic>())
-                                          .toList();
-                                      debugPrint(
-                                        'Monitor: fallback passengers=${passengersList.length} studentDocs=${studentById.length}',
-                                      );
-                                      WidgetsBinding.instance
-                                          .addPostFrameCallback((_) {
-                                            _ensureSchoolTypesLoaded(
-                                              studentById,
-                                            );
-                                            _ensureSchoolLocations(studentById);
-                                          });
-                                      debugPrint(
-                                        'Monitor: fallback passengers list=$passengersList',
-                                      );
-                                      debugPrint(
-                                        'Monitor: fallback studentDocKeys=${studentById.keys.toList()}',
-                                      );
-                                      debugPrint(
-                                        'Monitor: driver has_home=${driver.containsKey('home_location')} has_service_area=${driver.containsKey('service_area')}',
-                                      );
-                                      final stopPoints =
-                                          _buildRoutePolylineStops(
-                                            routeType: routeType,
-                                            driverData: driver,
-                                            driverLivePoint:
-                                                fallbackDriverPoint != null
-                                                ? _roundLatLng(
-                                                    fallbackDriverPoint,
-                                                  )
-                                                : null,
-                                            passengers: passengersList,
-                                            studentById: studentById,
-                                          );
-
-                                      debugPrint(
-                                        'Monitor: computed stopPoints=${stopPoints.length} for routeType=$routeType (fallback)',
-                                      );
-                                      WidgetsBinding.instance.addPostFrameCallback((
-                                        _,
-                                      ) {
-                                        debugPrint(
-                                          'Monitor: calling _ensureRoutedPolyline for routeType=$routeType stopCount=${stopPoints.length}',
-                                        );
-                                        _ensureRoutedPolyline(
-                                          routeType,
-                                          stopPoints,
-                                        );
-                                      });
-
-                                      final routed =
-                                          _routedKey ==
-                                              _makeRouteKey(
-                                                routeType,
-                                                stopPoints,
-                                              )
-                                          ? _routedPolyline
-                                          : null;
-                                      final polylinePoints =
-                                          (routed != null && routed.length >= 2)
-                                          ? routed
-                                          : stopPoints;
-                                      debugPrint(
-                                        'Monitor: polylinePoints=${polylinePoints.length} usingRouted=${routed != null && routed.length >= 2}',
-                                      );
-
-                                      final usedKeys = <String>{};
-                                      final routeMarkers =
-                                          _buildRouteStopMarkers(
-                                            stopPoints,
-                                            usedKeys,
-                                          );
-                                      routeMarkers.addAll(
-                                        _buildSchoolMarkers(
-                                          tripId: tripId,
-                                          routeType: routeType,
-                                          passengers: passengersList,
-                                          studentById: studentById,
-                                          seenKeys: usedKeys,
-                                        ),
-                                      );
-                                      if (parentPickupLocation != null &&
-                                          usedKeys.add(
-                                            _pointKey(parentPickupLocation),
-                                          )) {
-                                        routeMarkers.add(
+                              return Stack(
+                                children: [
+                                  Positioned.fill(
+                                    child: _buildMap(
+                                      initialCenter: center,
+                                      initialZoom: driverPoint != null ? 15 : 2,
+                                      heroTag: 'monitor_center_no_trip',
+                                      driverPoint: driverPoint,
+                                      polylinePoints: const [],
+                                      markers: [
+                                        if (pickup != null)
                                           Marker(
-                                            point: parentPickupLocation,
-                                            width: 36,
-                                            height: 36,
+                                            point: pickup,
+                                            width: 44,
+                                            height: 44,
                                             child: const Icon(
                                               Icons.home,
-                                              color: Colors.blue,
-                                              size: 30,
+                                              color: Colors.black87,
+                                              size: 34,
                                             ),
                                           ),
-                                        );
-                                      }
-
-                                      return Stack(
-                                        children: [
-                                          Positioned.fill(
-                                            child: _buildMap(
-                                              initialCenter: fallbackCenter,
-                                              initialZoom:
-                                                  fallbackDriverPoint != null
-                                                  ? 15
-                                                  : 2,
-                                              heroTag:
-                                                  'monitor_center_fallback',
-                                              driverPoint: fallbackDriverPoint,
-                                              polylinePoints: polylinePoints,
-                                              markers: [
-                                                ...routeMarkers,
-                                                if (pickup != null)
-                                                  Marker(
-                                                    point: pickup,
-                                                    width: 44,
-                                                    height: 44,
-                                                    child: const Icon(
-                                                      Icons.home,
-                                                      color: Colors.black87,
-                                                      size: 34,
-                                                    ),
-                                                  ),
-                                                if (fallbackDriverPoint != null)
-                                                  Marker(
-                                                    point: fallbackDriverPoint,
-                                                    width: 44,
-                                                    height: 44,
-                                                    child: const Icon(
-                                                      Icons.directions_bus,
-                                                      color: Colors.blue,
-                                                      size: 38,
-                                                    ),
-                                                  ),
-                                              ],
-                                              parentLocation:
-                                                  parentPickupLocation,
-                                            ),
-                                          ),
-                                          Align(
-                                            alignment: Alignment.topCenter,
-                                            child: _buildOverlayPanels(
-                                              attending: attending,
-                                              onAttendanceChanged: (v) =>
-                                                  _parentService
-                                                      .setAttendanceForToday(
-                                                        parentId:
-                                                            widget.parentId,
-                                                        childId:
-                                                            widget.childDoc.id,
-                                                        attending: v,
-                                                      ),
-                                              statusText:
-                                                  'Status: ${MonitorPage._statusLabel(status)}',
-                                            ),
-                                          ),
-                                        ],
-                                      );
-                                    },
-                                  );
-                                },
-                              );
-                            }
-
-                            final dp = driverPoint;
-
-                            if (proximityAlertEnabled && pickup != null) {
-                              final meters = const Distance()(pickup, dp);
-                              if (meters <= 200 &&
-                                  _proximityNotifiedTripId != tripId) {
-                                _proximityNotifiedTripId = tripId;
-                                final childName =
-                                    (child['child_name'] ?? 'Student')
-                                        .toString();
-                                WidgetsBinding.instance.addPostFrameCallback((
-                                  _,
-                                ) {
-                                  _notificationService.createUnique(
-                                    notificationId:
-                                        'proximity_${tripId}_${widget.childDoc.id}',
-                                    userId: widget.parentId,
-                                    type: 'proximity',
-                                    message:
-                                        'Driver is near pickup for $childName',
-                                  );
-                                });
-                              }
-                            }
-
-                            return StreamBuilder<
-                              QuerySnapshot<Map<String, dynamic>>
-                            >(
-                              stream: FirebaseFirestore.instance
-                                  .collection('drivers')
-                                  .doc(assignedDriver)
-                                  .collection('students')
-                                  .snapshots(),
-                              builder: (context, studentsSnap) {
-                                final docs =
-                                    studentsSnap.data?.docs ?? const [];
-                                final studentById = {
-                                  for (final d in docs) d.id: d.data(),
-                                };
-
-                                final passengersList = passengers
-                                    .map((e) => e.cast<String, dynamic>())
-                                    .toList();
-                                debugPrint(
-                                  'Monitor: active passengers=${passengersList.length} studentDocs=${studentById.length}',
-                                );
-                                WidgetsBinding.instance.addPostFrameCallback((
-                                  _,
-                                ) {
-                                  _ensureSchoolTypesLoaded(studentById);
-                                  _ensureSchoolLocations(studentById);
-                                });
-                                debugPrint(
-                                  'Monitor: active passengers list=$passengersList',
-                                );
-                                debugPrint(
-                                  'Monitor: active studentDocKeys=${studentById.keys.toList()}',
-                                );
-                                debugPrint(
-                                  'Monitor: driver has_home=${driver.containsKey('home_location')} has_service_area=${driver.containsKey('service_area')}',
-                                );
-                                final stopPoints = _buildRoutePolylineStops(
-                                  routeType: routeType,
-                                  driverData: driver,
-                                  driverLivePoint: _roundLatLng(dp),
-                                  passengers: passengersList,
-                                  studentById: studentById,
-                                );
-
-                                debugPrint(
-                                  'Monitor: computed stopPoints=${stopPoints.length} for routeType=$routeType (active)',
-                                );
-                                WidgetsBinding.instance.addPostFrameCallback((
-                                  _,
-                                ) {
-                                  debugPrint(
-                                    'Monitor: calling _ensureRoutedPolyline for routeType=$routeType stopCount=${stopPoints.length} (active)',
-                                  );
-                                  _ensureRoutedPolyline(routeType, stopPoints);
-                                });
-
-                                final routed =
-                                    _routedKey ==
-                                        _makeRouteKey(routeType, stopPoints)
-                                    ? _routedPolyline
-                                    : null;
-                                final polylinePoints =
-                                    (routed != null && routed.length >= 2)
-                                    ? routed
-                                    : stopPoints;
-                                debugPrint(
-                                  'Monitor: polylinePoints=${polylinePoints.length} usingRouted=${routed != null && routed.length >= 2}',
-                                );
-
-                                final usedKeys = <String>{};
-                                final routeMarkers = _buildRouteStopMarkers(
-                                  stopPoints,
-                                  usedKeys,
-                                );
-                                routeMarkers.addAll(
-                                  _buildSchoolMarkers(
-                                    tripId: tripId,
-                                    routeType: routeType,
-                                    passengers: passengersList,
-                                    studentById: studentById,
-                                    seenKeys: usedKeys,
-                                  ),
-                                );
-                                if (parentPickupLocation != null &&
-                                    usedKeys.add(
-                                      _pointKey(parentPickupLocation),
-                                    )) {
-                                  routeMarkers.add(
-                                    Marker(
-                                      point: parentPickupLocation,
-                                      width: 36,
-                                      height: 36,
-                                      child: const Icon(
-                                        Icons.home,
-                                        color: Colors.blue,
-                                        size: 30,
-                                      ),
-                                    ),
-                                  );
-                                }
-
-                                return Stack(
-                                  children: [
-                                    Positioned.fill(
-                                      child: _buildMap(
-                                        initialCenter: center,
-                                        initialZoom: 15,
-                                        heroTag: 'monitor_center_active',
-                                        driverPoint: dp,
-                                        polylinePoints: polylinePoints,
-                                        markers: [
-                                          ...routeMarkers,
-                                          if (pickup != null)
-                                            Marker(
-                                              point: pickup,
-                                              width: 44,
-                                              height: 44,
-                                              child: const Icon(
-                                                Icons.home,
-                                                color: Colors.black87,
-                                                size: 34,
-                                              ),
-                                            ),
+                                        if (driverPoint != null)
                                           Marker(
-                                            point: dp,
+                                            point: driverPoint,
                                             width: 44,
                                             height: 44,
                                             child: const Icon(
@@ -1514,26 +1085,511 @@ class _MonitorPageState extends State<MonitorPage> {
                                               size: 38,
                                             ),
                                           ),
-                                        ],
-                                        parentLocation: parentPickupLocation,
-                                      ),
+                                      ],
+                                      parentLocation: parentPickupLocation,
                                     ),
-                                    Align(
-                                      alignment: Alignment.topCenter,
-                                      child: _buildOverlayPanels(
-                                        attending: attending,
-                                        onAttendanceChanged: (v) =>
-                                            _parentService
-                                                .setAttendanceForToday(
-                                                  parentId: widget.parentId,
-                                                  childId: widget.childDoc.id,
-                                                  attending: v,
+                                  ),
+                                  Align(
+                                    alignment: Alignment.topCenter,
+                                    child: _buildOverlayPanels(
+                                      attending: attending,
+                                      onAttendanceChanged: (v) =>
+                                          _parentService.setAttendanceForToday(
+                                            parentId: widget.parentId,
+                                            childId: widget.childDoc.id,
+                                            attending: v,
+                                          ),
+                                      statusText: 'Status: Not started',
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
+                          );
+                        }
+
+                        final statusRef = FirebaseDatabase.instance.ref(
+                          'boarding_status/$tripId/${widget.childDoc.id}',
+                        );
+
+                        return StreamBuilder<DatabaseEvent>(
+                          stream: statusRef.onValue,
+                          builder: (context, statusSnap) {
+                            BoardingStatus status = fallbackStatus;
+                            final raw = statusSnap.data?.snapshot.value;
+                            if (raw is Map) {
+                              final m = raw.cast<Object?, Object?>();
+                              final s = (m['status'] ?? '').toString();
+                              if (s.isNotEmpty) {
+                                status = BoardingStatusCodec.fromJson(s);
+                              }
+                            }
+
+                            return StreamBuilder<DatabaseEvent>(
+                              stream: _live.streamLiveLocation(tripId),
+                              builder: (context, locSnap) {
+                                LatLng center = const LatLng(0, 0);
+                                LatLng? driverPoint;
+
+                                final val = locSnap.data?.snapshot.value;
+                                if (val is Map) {
+                                  final m = val.cast<Object?, Object?>();
+                                  final lat = (m['lat'] as num?)?.toDouble();
+                                  final lng = (m['lng'] as num?)?.toDouble();
+                                  if (lat != null && lng != null) {
+                                    driverPoint = LatLng(lat, lng);
+                                    center = driverPoint;
+                                    _maybeAutoCenterOnDriver(driverPoint);
+                                  }
+                                }
+
+                                final LatLng? pickup =
+                                    MonitorPage._latLngFromMap(
+                                      (child['pickup_location'] as Map?)
+                                          ?.cast<String, dynamic>(),
+                                    );
+
+                                // If no trip-specific location yet, fall back to `live_locations/<driverId>`.
+                                if (driverPoint == null) {
+                                  return StreamBuilder<DatabaseEvent>(
+                                    stream: _live.streamDriverLiveLocation(
+                                      assignedDriver,
+                                    ),
+                                    builder: (context, driverLocSnap) {
+                                      LatLng fallbackCenter = center;
+                                      LatLng? fallbackDriverPoint;
+
+                                      final raw =
+                                          driverLocSnap.data?.snapshot.value;
+                                      if (raw is Map) {
+                                        final m = raw.cast<Object?, Object?>();
+                                        final lat = (m['lat'] as num?)
+                                            ?.toDouble();
+                                        final lng = (m['lng'] as num?)
+                                            ?.toDouble();
+                                        if (lat != null && lng != null) {
+                                          fallbackDriverPoint = LatLng(
+                                            lat,
+                                            lng,
+                                          );
+                                          fallbackCenter = fallbackDriverPoint;
+                                          _maybeAutoCenterOnDriver(
+                                            fallbackDriverPoint,
+                                          );
+                                        }
+                                      }
+
+                                      if (proximityAlertEnabled &&
+                                          pickup != null &&
+                                          fallbackDriverPoint != null) {
+                                        final meters = const Distance()(
+                                          pickup,
+                                          fallbackDriverPoint,
+                                        );
+                                        if (meters <= 200 &&
+                                            _proximityNotifiedTripId !=
+                                                tripId) {
+                                          _proximityNotifiedTripId = tripId;
+                                          final childName =
+                                              (child['child_name'] ?? 'Student')
+                                                  .toString();
+                                          WidgetsBinding.instance.addPostFrameCallback((
+                                            _,
+                                          ) {
+                                            _notificationService.createUnique(
+                                              notificationId:
+                                                  'proximity_${tripId}_${widget.childDoc.id}',
+                                              userId: widget.parentId,
+                                              type: 'proximity',
+                                              message:
+                                                  'Driver is near pickup for $childName',
+                                            );
+                                          });
+                                        }
+                                      }
+
+                                      return FutureBuilder<
+                                        QuerySnapshot<Map<String, dynamic>>
+                                      >(
+                                        future: FirebaseFirestore.instance
+                                            .collection('drivers')
+                                            .doc(assignedDriver)
+                                            .collection('students')
+                                            .get(),
+                                        builder: (context, studentsSnap) {
+                                          final docs =
+                                              studentsSnap.data?.docs ??
+                                              const [];
+                                          final studentById = {
+                                            for (final d in docs)
+                                              d.id: d.data(),
+                                          };
+
+                                          final passengersList = passengers
+                                              .map(
+                                                (e) =>
+                                                    e.cast<String, dynamic>(),
+                                              )
+                                              .toList();
+                                          debugPrint(
+                                            'Monitor: fallback passengers=${passengersList.length} studentDocs=${studentById.length}',
+                                          );
+                                          WidgetsBinding.instance
+                                              .addPostFrameCallback((_) {
+                                                _ensureSchoolTypesLoaded(
+                                                  studentById,
+                                                );
+                                                _ensureSchoolLocations(
+                                                  studentById,
+                                                );
+                                              });
+                                          debugPrint(
+                                            'Monitor: fallback passengers list=$passengersList',
+                                          );
+                                          debugPrint(
+                                            'Monitor: fallback studentDocKeys=${studentById.keys.toList()}',
+                                          );
+                                          debugPrint(
+                                            'Monitor: driver has_home=${driver.containsKey('home_location')} has_service_area=${driver.containsKey('service_area')}',
+                                          );
+                                          final stopPoints =
+                                              _buildRoutePolylineStops(
+                                                routeType: routeType,
+                                                driverData: driver,
+                                                driverLivePoint:
+                                                    fallbackDriverPoint != null
+                                                    ? _roundLatLng(
+                                                        fallbackDriverPoint,
+                                                      )
+                                                    : null,
+                                                passengers: passengersList,
+                                                studentById: studentById,
+                                                operatorLocation:
+                                                    _getOperatorLocation(),
+                                              );
+
+                                          debugPrint(
+                                            'Monitor: computed stopPoints=${stopPoints.length} for routeType=$routeType (fallback)',
+                                          );
+                                          WidgetsBinding.instance
+                                              .addPostFrameCallback((_) {
+                                                debugPrint(
+                                                  'Monitor: calling _ensureRoutedPolyline for routeType=$routeType stopCount=${stopPoints.length}',
+                                                );
+                                                _ensureRoutedPolyline(
+                                                  routeType,
+                                                  stopPoints,
+                                                );
+                                              });
+
+                                          final routed =
+                                              _routedKey ==
+                                                  _makeRouteKey(
+                                                    routeType,
+                                                    stopPoints,
+                                                  )
+                                              ? _routedPolyline
+                                              : null;
+                                          final polylinePoints =
+                                              (routed != null &&
+                                                  routed.length >= 2)
+                                              ? routed
+                                              : stopPoints;
+                                          debugPrint(
+                                            'Monitor: polylinePoints=${polylinePoints.length} usingRouted=${routed != null && routed.length >= 2}',
+                                          );
+
+                                          final usedKeys = <String>{};
+                                          final routeMarkers =
+                                              _buildRouteStopMarkers(
+                                                stopPoints,
+                                                usedKeys,
+                                              );
+                                          routeMarkers.addAll(
+                                            _buildSchoolMarkers(
+                                              tripId: tripId,
+                                              routeType: routeType,
+                                              passengers: passengersList,
+                                              studentById: studentById,
+                                              seenKeys: usedKeys,
+                                            ),
+                                          );
+                                          if (parentPickupLocation != null &&
+                                              usedKeys.add(
+                                                _pointKey(parentPickupLocation),
+                                              )) {
+                                            routeMarkers.add(
+                                              Marker(
+                                                point: parentPickupLocation,
+                                                width: 36,
+                                                height: 36,
+                                                child: const Icon(
+                                                  Icons.home,
+                                                  color: Colors.blue,
+                                                  size: 30,
                                                 ),
-                                        statusText:
-                                            'Status: ${MonitorPage._statusLabel(status)}',
+                                              ),
+                                            );
+                                          }
+
+                                          return Stack(
+                                            children: [
+                                              Positioned.fill(
+                                                child: _buildMap(
+                                                  initialCenter: fallbackCenter,
+                                                  initialZoom:
+                                                      fallbackDriverPoint !=
+                                                          null
+                                                      ? 15
+                                                      : 2,
+                                                  heroTag:
+                                                      'monitor_center_fallback',
+                                                  driverPoint:
+                                                      fallbackDriverPoint,
+                                                  polylinePoints:
+                                                      polylinePoints,
+                                                  markers: [
+                                                    ...routeMarkers,
+                                                    if (pickup != null)
+                                                      Marker(
+                                                        point: pickup,
+                                                        width: 44,
+                                                        height: 44,
+                                                        child: const Icon(
+                                                          Icons.home,
+                                                          color: Colors.black87,
+                                                          size: 34,
+                                                        ),
+                                                      ),
+                                                    if (fallbackDriverPoint !=
+                                                        null)
+                                                      Marker(
+                                                        point:
+                                                            fallbackDriverPoint,
+                                                        width: 44,
+                                                        height: 44,
+                                                        child: const Icon(
+                                                          Icons.directions_bus,
+                                                          color: Colors.blue,
+                                                          size: 38,
+                                                        ),
+                                                      ),
+                                                  ],
+                                                  parentLocation:
+                                                      parentPickupLocation,
+                                                ),
+                                              ),
+                                              Align(
+                                                alignment: Alignment.topCenter,
+                                                child: _buildOverlayPanels(
+                                                  attending: attending,
+                                                  onAttendanceChanged: (v) =>
+                                                      _parentService
+                                                          .setAttendanceForToday(
+                                                            parentId:
+                                                                widget.parentId,
+                                                            childId: widget
+                                                                .childDoc
+                                                                .id,
+                                                            attending: v,
+                                                          ),
+                                                  statusText:
+                                                      'Status: ${MonitorPage._statusLabel(status)}',
+                                                ),
+                                              ),
+                                            ],
+                                          );
+                                        },
+                                      );
+                                    },
+                                  );
+                                }
+
+                                final dp = driverPoint;
+
+                                if (proximityAlertEnabled && pickup != null) {
+                                  final meters = const Distance()(pickup, dp);
+                                  if (meters <= 200 &&
+                                      _proximityNotifiedTripId != tripId) {
+                                    _proximityNotifiedTripId = tripId;
+                                    final childName =
+                                        (child['child_name'] ?? 'Student')
+                                            .toString();
+                                    WidgetsBinding.instance.addPostFrameCallback((
+                                      _,
+                                    ) {
+                                      _notificationService.createUnique(
+                                        notificationId:
+                                            'proximity_${tripId}_${widget.childDoc.id}',
+                                        userId: widget.parentId,
+                                        type: 'proximity',
+                                        message:
+                                            'Driver is near pickup for $childName',
+                                      );
+                                    });
+                                  }
+                                }
+
+                                return StreamBuilder<
+                                  QuerySnapshot<Map<String, dynamic>>
+                                >(
+                                  stream: FirebaseFirestore.instance
+                                      .collection('drivers')
+                                      .doc(assignedDriver)
+                                      .collection('students')
+                                      .snapshots(),
+                                  builder: (context, studentsSnap) {
+                                    final docs =
+                                        studentsSnap.data?.docs ?? const [];
+                                    final studentById = {
+                                      for (final d in docs) d.id: d.data(),
+                                    };
+
+                                    final passengersList = passengers
+                                        .map((e) => e.cast<String, dynamic>())
+                                        .toList();
+                                    debugPrint(
+                                      'Monitor: active passengers=${passengersList.length} studentDocs=${studentById.length}',
+                                    );
+                                    WidgetsBinding.instance
+                                        .addPostFrameCallback((_) {
+                                          _ensureSchoolTypesLoaded(studentById);
+                                          _ensureSchoolLocations(studentById);
+                                        });
+                                    debugPrint(
+                                      'Monitor: active passengers list=$passengersList',
+                                    );
+                                    debugPrint(
+                                      'Monitor: active studentDocKeys=${studentById.keys.toList()}',
+                                    );
+                                    debugPrint(
+                                      'Monitor: driver has_home=${driver.containsKey('home_location')} has_service_area=${driver.containsKey('service_area')}',
+                                    );
+                                    final stopPoints = _buildRoutePolylineStops(
+                                      routeType: routeType,
+                                      driverData: driver,
+                                      driverLivePoint: _roundLatLng(dp),
+                                      passengers: passengersList,
+                                      studentById: studentById,
+                                      operatorLocation: _getOperatorLocation(),
+                                    );
+
+                                    debugPrint(
+                                      'Monitor: computed stopPoints=${stopPoints.length} for routeType=$routeType (active)',
+                                    );
+                                    WidgetsBinding.instance.addPostFrameCallback((
+                                      _,
+                                    ) {
+                                      debugPrint(
+                                        'Monitor: calling _ensureRoutedPolyline for routeType=$routeType stopCount=${stopPoints.length} (active)',
+                                      );
+                                      _ensureRoutedPolyline(
+                                        routeType,
+                                        stopPoints,
+                                      );
+                                    });
+
+                                    final routed =
+                                        _routedKey ==
+                                            _makeRouteKey(routeType, stopPoints)
+                                        ? _routedPolyline
+                                        : null;
+                                    final polylinePoints =
+                                        (routed != null && routed.length >= 2)
+                                        ? routed
+                                        : stopPoints;
+                                    debugPrint(
+                                      'Monitor: polylinePoints=${polylinePoints.length} usingRouted=${routed != null && routed.length >= 2}',
+                                    );
+
+                                    final usedKeys = <String>{};
+                                    final routeMarkers = _buildRouteStopMarkers(
+                                      stopPoints,
+                                      usedKeys,
+                                    );
+                                    routeMarkers.addAll(
+                                      _buildSchoolMarkers(
+                                        tripId: tripId,
+                                        routeType: routeType,
+                                        passengers: passengersList,
+                                        studentById: studentById,
+                                        seenKeys: usedKeys,
                                       ),
-                                    ),
-                                  ],
+                                    );
+                                    if (parentPickupLocation != null &&
+                                        usedKeys.add(
+                                          _pointKey(parentPickupLocation),
+                                        )) {
+                                      routeMarkers.add(
+                                        Marker(
+                                          point: parentPickupLocation,
+                                          width: 36,
+                                          height: 36,
+                                          child: const Icon(
+                                            Icons.home,
+                                            color: Colors.blue,
+                                            size: 30,
+                                          ),
+                                        ),
+                                      );
+                                    }
+
+                                    return Stack(
+                                      children: [
+                                        Positioned.fill(
+                                          child: _buildMap(
+                                            initialCenter: center,
+                                            initialZoom: 15,
+                                            heroTag: 'monitor_center_active',
+                                            driverPoint: dp,
+                                            polylinePoints: polylinePoints,
+                                            markers: [
+                                              ...routeMarkers,
+                                              if (pickup != null)
+                                                Marker(
+                                                  point: pickup,
+                                                  width: 44,
+                                                  height: 44,
+                                                  child: const Icon(
+                                                    Icons.home,
+                                                    color: Colors.black87,
+                                                    size: 34,
+                                                  ),
+                                                ),
+                                              Marker(
+                                                point: dp,
+                                                width: 44,
+                                                height: 44,
+                                                child: const Icon(
+                                                  Icons.directions_bus,
+                                                  color: Colors.blue,
+                                                  size: 38,
+                                                ),
+                                              ),
+                                            ],
+                                            parentLocation:
+                                                parentPickupLocation,
+                                          ),
+                                        ),
+                                        Align(
+                                          alignment: Alignment.topCenter,
+                                          child: _buildOverlayPanels(
+                                            attending: attending,
+                                            onAttendanceChanged: (v) =>
+                                                _parentService
+                                                    .setAttendanceForToday(
+                                                      parentId: widget.parentId,
+                                                      childId:
+                                                          widget.childDoc.id,
+                                                      attending: v,
+                                                    ),
+                                            statusText:
+                                                'Status: ${MonitorPage._statusLabel(status)}',
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  },
                                 );
                               },
                             );
