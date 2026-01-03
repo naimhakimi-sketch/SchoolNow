@@ -845,7 +845,8 @@ class _MonitorPageState extends State<MonitorPage> {
                   .doc(assignedDriver)
                   .snapshots(),
               builder: (context, driverSnap) {
-                final driver = driverSnap.data?.data() ?? const <String, dynamic>{};
+                final driver =
+                    driverSnap.data?.data() ?? const <String, dynamic>{};
                 debugPrint('Monitor: driver doc keys=${driver.keys.toList()}');
                 final tripId = (driver['active_trip_id'] ?? '').toString();
                 debugPrint('Monitor: driver active_trip_id=$tripId');
