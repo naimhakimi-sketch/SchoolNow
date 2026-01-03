@@ -109,6 +109,8 @@ class _MonitorPageState extends State<MonitorPage> {
   }) {
     final markers = <Marker>[];
     final isMorning = routeType == 'morning';
+    final isAfternoon =
+        routeType == 'primary_pm' || routeType == 'secondary_pm';
 
     for (final entry in _schoolLocations.entries) {
       final sid = entry.key;
@@ -146,7 +148,13 @@ class _MonitorPageState extends State<MonitorPage> {
         final status = BoardingStatusCodec.fromJson(
           (p['status'] ?? 'not_boarded').toString(),
         );
-        // Show school if students are not arrived and not absent
+
+        // For afternoon routes, only show schools with students not yet boarded
+        if (isAfternoon) {
+          return status == BoardingStatus.notBoarded;
+        }
+
+        // For morning routes, show school if students are not arrived and not absent
         return status != BoardingStatus.alighted &&
             status != BoardingStatus.absent;
       }).toList();
@@ -262,6 +270,27 @@ class _MonitorPageState extends State<MonitorPage> {
       );
     }
 
+    return markers;
+  }
+
+  List<Marker> _buildOperatorMarker({
+    required LatLng? operatorLocation,
+    required Set<String> seenKeys,
+  }) {
+    final markers = <Marker>[];
+    if (operatorLocation != null) {
+      final key = _pointKey(operatorLocation);
+      if (seenKeys.add(key)) {
+        markers.add(
+          Marker(
+            point: operatorLocation,
+            width: 44,
+            height: 44,
+            child: const Icon(Icons.business, color: Colors.purple, size: 40),
+          ),
+        );
+      }
+    }
     return markers;
   }
 
@@ -712,7 +741,15 @@ class _MonitorPageState extends State<MonitorPage> {
           final schoolLocation = _getSchoolLocation(schoolId);
           final schoolType = _schoolTypes[schoolId] ?? 'primary';
 
+          // Only add school if it has students not yet boarded from this school
+          final hasNotBoardedStudents =
+              schoolsWithActiveStudents[schoolId]?.any(
+                (studentId) => statusOf(studentId) == BoardingStatus.notBoarded,
+              ) ??
+              false;
+
           if (schoolLocation != null &&
+              hasNotBoardedStudents &&
               (targetSchoolType == null ||
                   schoolType.toLowerCase() == targetSchoolType)) {
             schoolStops.add({'school_id': schoolId, 'point': schoolLocation});
@@ -1301,16 +1338,23 @@ class _MonitorPageState extends State<MonitorPage> {
 
                                           final usedKeys = <String>{};
                                           final routeMarkers =
-                                              _buildRouteStopMarkers(
-                                                stopPoints,
-                                                usedKeys,
+                                              _buildSchoolMarkers(
+                                                tripId: tripId,
+                                                routeType: routeType,
+                                                passengers: passengersList,
+                                                studentById: studentById,
+                                                seenKeys: usedKeys,
                                               );
                                           routeMarkers.addAll(
-                                            _buildSchoolMarkers(
-                                              tripId: tripId,
-                                              routeType: routeType,
-                                              passengers: passengersList,
-                                              studentById: studentById,
+                                            _buildRouteStopMarkers(
+                                              stopPoints,
+                                              usedKeys,
+                                            ),
+                                          );
+                                          routeMarkers.addAll(
+                                            _buildOperatorMarker(
+                                              operatorLocation:
+                                                  _getOperatorLocation(),
                                               seenKeys: usedKeys,
                                             ),
                                           );
@@ -1324,8 +1368,8 @@ class _MonitorPageState extends State<MonitorPage> {
                                                 width: 36,
                                                 height: 36,
                                                 child: const Icon(
-                                                  Icons.home,
-                                                  color: Colors.blue,
+                                                  Icons.person,
+                                                  color: Colors.orange,
                                                   size: 30,
                                                 ),
                                               ),
@@ -1503,16 +1547,23 @@ class _MonitorPageState extends State<MonitorPage> {
                                     );
 
                                     final usedKeys = <String>{};
-                                    final routeMarkers = _buildRouteStopMarkers(
-                                      stopPoints,
-                                      usedKeys,
+                                    final routeMarkers = _buildSchoolMarkers(
+                                      tripId: tripId,
+                                      routeType: routeType,
+                                      passengers: passengersList,
+                                      studentById: studentById,
+                                      seenKeys: usedKeys,
                                     );
                                     routeMarkers.addAll(
-                                      _buildSchoolMarkers(
-                                        tripId: tripId,
-                                        routeType: routeType,
-                                        passengers: passengersList,
-                                        studentById: studentById,
+                                      _buildRouteStopMarkers(
+                                        stopPoints,
+                                        usedKeys,
+                                      ),
+                                    );
+                                    routeMarkers.addAll(
+                                      _buildOperatorMarker(
+                                        operatorLocation:
+                                            _getOperatorLocation(),
                                         seenKeys: usedKeys,
                                       ),
                                     );
@@ -1526,8 +1577,8 @@ class _MonitorPageState extends State<MonitorPage> {
                                           width: 36,
                                           height: 36,
                                           child: const Icon(
-                                            Icons.home,
-                                            color: Colors.blue,
+                                            Icons.person,
+                                            color: Colors.orange,
                                             size: 30,
                                           ),
                                         ),

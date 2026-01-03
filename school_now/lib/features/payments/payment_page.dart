@@ -167,32 +167,29 @@ class _PaymentPageState extends State<PaymentPage> {
                   const SizedBox(height: 8),
                   RadioListTile<String>(
                     value: 'both',
+                    groupValue: _tripType,
                     title: const Text('Both (Going & Return)'),
                     subtitle: const Text(
                       'Morning pickup and afternoon dropoff',
                     ),
-                    selected: _tripType == 'both',
-                    // ignore: deprecated_member_use
                     onChanged: _loading
                         ? null
                         : (v) => setState(() => _tripType = v ?? 'both'),
                   ),
                   RadioListTile<String>(
                     value: 'going',
+                    groupValue: _tripType,
                     title: const Text('Going Only'),
                     subtitle: const Text('Morning pickup to school'),
-                    selected: _tripType == 'going',
-                    // ignore: deprecated_member_use
                     onChanged: _loading
                         ? null
                         : (v) => setState(() => _tripType = v ?? 'going'),
                   ),
                   RadioListTile<String>(
                     value: 'return',
+                    groupValue: _tripType,
                     title: const Text('Return Only'),
                     subtitle: const Text('School to home afternoon dropoff'),
-                    selected: _tripType == 'return',
-                    // ignore: deprecated_member_use
                     onChanged: _loading
                         ? null
                         : (v) => setState(() => _tripType = v ?? 'return'),

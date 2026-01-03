@@ -863,7 +863,15 @@ class _DrivePageState extends State<DrivePage> {
           final schoolLocation = _getSchoolLocation(schoolId);
           final schoolType = _schoolTypes[schoolId] ?? 'primary';
 
+          // Only add school if it has students not yet boarded from this school
+          final hasNotBoardedStudents =
+              schoolsWithActiveStudents[schoolId]?.any(
+                (studentId) => statusOf(studentId) == BoardingStatus.notBoarded,
+              ) ??
+              false;
+
           if (schoolLocation != null &&
+              hasNotBoardedStudents &&
               (targetSchoolType == null ||
                   schoolType.toLowerCase() == targetSchoolType)) {
             schoolStops.add({'school_id': schoolId, 'point': schoolLocation});
@@ -1080,6 +1088,9 @@ class _DrivePageState extends State<DrivePage> {
     }
 
     // Add markers for cached schools (destinations)
+    final isAfternoon =
+        routeType == 'primary_pm' || routeType == 'secondary_pm';
+
     for (final entry in _schoolLocations.entries) {
       final sid = entry.key;
       final point = entry.value;
@@ -1094,6 +1105,26 @@ class _DrivePageState extends State<DrivePage> {
         case 'primary':
         default:
           color = Colors.blue;
+      }
+
+      // For afternoon routes, only show schools with students not yet boarded
+      if (isAfternoon) {
+        // Check if this school has any students with notBoarded status
+        final hasNotBoardedStudents = studentById.entries.any((entry) {
+          final studentId = entry.key;
+          final student = entry.value;
+          if ((student['school_id'] ?? '').toString() != sid) return false;
+
+          final p = passengers.firstWhere(
+            (x) => (x['student_id'] ?? '').toString() == studentId,
+            orElse: () => const <String, dynamic>{},
+          );
+          final status = BoardingStatusCodec.fromJson(
+            (p['status'] ?? 'not_boarded').toString(),
+          );
+          return status == BoardingStatus.notBoarded;
+        });
+        if (!hasNotBoardedStudents) continue;
       }
 
       markers.add(
