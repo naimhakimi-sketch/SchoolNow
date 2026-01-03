@@ -130,6 +130,8 @@ class ParentService {
           .doc(childId);
       batch.set(driverStudentRef, {
         'student_name': childName,
+        'school_id': schoolId,
+        'school_name': schoolName.trim(),
         'updated_at': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     }

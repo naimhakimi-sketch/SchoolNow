@@ -961,6 +961,92 @@ class _MonitorPageState extends State<MonitorPage> {
                       (p['status'] ?? 'not_boarded').toString(),
                     );
 
+                    // If this trip does not include the monitored child, do not
+                    // show the trip route — fall back to simple live location.
+                    final isPassenger = passengers.any(
+                      (x) =>
+                          (x['student_id'] ?? '').toString() ==
+                          widget.childDoc.id,
+                    );
+                    if (!isPassenger) {
+                      final LatLng? pickup = MonitorPage._latLngFromMap(
+                        (child['pickup_location'] as Map?)
+                            ?.cast<String, dynamic>(),
+                      );
+
+                      return StreamBuilder<DatabaseEvent>(
+                        stream: _live.streamDriverLiveLocation(assignedDriver),
+                        builder: (context, driverLocSnap) {
+                          LatLng center = pickup ?? const LatLng(0, 0);
+                          LatLng? driverPoint;
+
+                          final val = driverLocSnap.data?.snapshot.value;
+                          if (val is Map) {
+                            final m = val.cast<Object?, Object?>();
+                            final lat = (m['lat'] as num?)?.toDouble();
+                            final lng = (m['lng'] as num?)?.toDouble();
+                            if (lat != null && lng != null) {
+                              driverPoint = LatLng(lat, lng);
+                              center = driverPoint;
+                              _maybeAutoCenterOnDriver(driverPoint);
+                            }
+                          }
+
+                          return Stack(
+                            children: [
+                              Positioned.fill(
+                                child: _buildMap(
+                                  initialCenter: center,
+                                  initialZoom: driverPoint != null ? 15 : 2,
+                                  heroTag: 'monitor_center_no_trip',
+                                  driverPoint: driverPoint,
+                                  polylinePoints: const [],
+                                  markers: [
+                                    if (pickup != null)
+                                      Marker(
+                                        point: pickup,
+                                        width: 44,
+                                        height: 44,
+                                        child: const Icon(
+                                          Icons.home,
+                                          color: Colors.black87,
+                                          size: 34,
+                                        ),
+                                      ),
+                                    if (driverPoint != null)
+                                      Marker(
+                                        point: driverPoint,
+                                        width: 44,
+                                        height: 44,
+                                        child: const Icon(
+                                          Icons.directions_bus,
+                                          color: Colors.blue,
+                                          size: 38,
+                                        ),
+                                      ),
+                                  ],
+                                  parentLocation: parentPickupLocation,
+                                ),
+                              ),
+                              Align(
+                                alignment: Alignment.topCenter,
+                                child: _buildOverlayPanels(
+                                  attending: attending,
+                                  onAttendanceChanged: (v) =>
+                                      _parentService.setAttendanceForToday(
+                                        parentId: widget.parentId,
+                                        childId: widget.childDoc.id,
+                                        attending: v,
+                                      ),
+                                  statusText: 'Status: Not started',
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      );
+                    }
+
                     final statusRef = FirebaseDatabase.instance.ref(
                       'boarding_status/$tripId/${widget.childDoc.id}',
                     );

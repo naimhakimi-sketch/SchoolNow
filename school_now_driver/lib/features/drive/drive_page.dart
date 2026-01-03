@@ -247,9 +247,44 @@ class _DrivePageState extends State<DrivePage> {
       final vehicleId = (driver?['transport_number'] ?? 'vehicle_unknown')
           .toString();
 
-      final studentIds = await _studentService.getApprovedStudentIds(
+      var studentIds = await _studentService.getApprovedStudentIds(
         widget.driverId,
       );
+
+      // For afternoon routes, filter students by school type.
+      if (_selectedRouteType == 'primary_pm' ||
+          _selectedRouteType == 'secondary_pm') {
+        final targetSchoolType = _selectedRouteType == 'primary_pm'
+            ? 'primary'
+            : 'secondary';
+        final filtered = <String>[];
+        for (final studentId in studentIds) {
+          try {
+            final docs = await FirebaseFirestore.instance
+                .collectionGroup('children')
+                .where(FieldPath.documentId, isEqualTo: studentId)
+                .limit(1)
+                .get();
+            if (docs.docs.isEmpty) continue;
+            final studentData = docs.docs.first.data();
+            final schoolId = (studentData['school_id'] ?? '').toString();
+            if (schoolId.isEmpty) continue;
+            final schoolDoc = await FirebaseFirestore.instance
+                .collection('schools')
+                .doc(schoolId)
+                .get();
+            final schoolType = (schoolDoc.data()?['type'] ?? 'primary')
+                .toString()
+                .toLowerCase();
+            if (schoolType == targetSchoolType) {
+              filtered.add(studentId);
+            }
+          } catch (_) {
+            // Skip on error
+          }
+        }
+        studentIds = filtered;
+      }
 
       final absentIds = <String>[];
       final studentsSnap = await FirebaseFirestore.instance
