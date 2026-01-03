@@ -54,7 +54,6 @@ class SchoolNowApp extends StatelessWidget {
           primary: primaryColor,
           secondary: secondaryColor,
           surface: backgroundColor,
-          background: backgroundColor,
         ),
         scaffoldBackgroundColor: backgroundColor,
         appBarTheme: const AppBarTheme(
@@ -121,15 +120,15 @@ class SchoolNowApp extends StatelessWidget {
           ),
         ),
         switchTheme: SwitchThemeData(
-          thumbColor: MaterialStateProperty.resolveWith((states) {
-            if (states.contains(MaterialState.selected)) {
+          thumbColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) {
               return primaryColor;
             }
             return Colors.grey[400];
           }),
-          trackColor: MaterialStateProperty.resolveWith((states) {
-            if (states.contains(MaterialState.selected)) {
-              return primaryColor.withOpacity(0.5);
+          trackColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) {
+              return primaryColor.withValues(alpha: 0.5);
             }
             return Colors.grey[300];
           }),
@@ -142,8 +141,8 @@ class SchoolNowApp extends StatelessWidget {
         navigationBarTheme: NavigationBarThemeData(
           backgroundColor: backgroundColor,
           indicatorColor: primaryColor,
-          labelTextStyle: MaterialStateProperty.resolveWith((states) {
-            if (states.contains(MaterialState.selected)) {
+          labelTextStyle: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) {
               return const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
@@ -152,8 +151,8 @@ class SchoolNowApp extends StatelessWidget {
             }
             return TextStyle(fontSize: 12, color: Colors.grey[600]);
           }),
-          iconTheme: MaterialStateProperty.resolveWith((states) {
-            if (states.contains(MaterialState.selected)) {
+          iconTheme: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) {
               return const IconThemeData(color: Colors.black87);
             }
             return IconThemeData(color: Colors.grey[600]);

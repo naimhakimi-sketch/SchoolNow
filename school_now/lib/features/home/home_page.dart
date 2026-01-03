@@ -37,7 +37,11 @@ class _HomePageState extends State<HomePage> {
         final childrenSnap = snap.data;
         if (childrenSnap == null || childrenSnap.docs.isEmpty) {
           return Scaffold(
-            appBar: AppBar(title: const Text('SchoolNow'), elevation: 0),
+            appBar: AppBar(
+              title: Image.asset('launcher/title.png', height: 40),
+              centerTitle: false,
+              elevation: 0,
+            ),
             body: Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -100,7 +104,8 @@ class _HomePageState extends State<HomePage> {
 
         return Scaffold(
           appBar: AppBar(
-            title: const Text('SchoolNow'),
+            title: Image.asset('launcher/title.png', height: 40),
+            centerTitle: false,
             elevation: 0,
             actions: [
               Padding(

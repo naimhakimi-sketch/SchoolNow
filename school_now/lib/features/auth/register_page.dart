@@ -106,7 +106,11 @@ class _RegisterPageState extends State<RegisterPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Create Account'), elevation: 0),
+      appBar: AppBar(
+        title: Image.asset('launcher/title.png', height: 40),
+        centerTitle: false,
+        elevation: 0,
+      ),
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         children: [

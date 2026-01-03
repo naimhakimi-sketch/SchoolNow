@@ -338,21 +338,55 @@ class _MonitorPageState extends State<MonitorPage> {
           children: [
             Card(
               elevation: 2,
-              child: SwitchListTile(
-                title: const Text(
-                  'Attending today',
-                  style: TextStyle(fontWeight: FontWeight.w600),
+              child: AbsorbPointer(
+                absorbing:
+                    status == BoardingStatus.boarded ||
+                    status == BoardingStatus.alighted,
+                child: Opacity(
+                  opacity:
+                      status == BoardingStatus.boarded ||
+                          status == BoardingStatus.alighted
+                      ? 0.5
+                      : 1.0,
+                  child: GestureDetector(
+                    onTap:
+                        status == BoardingStatus.boarded ||
+                            status == BoardingStatus.alighted
+                        ? () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  status == BoardingStatus.alighted
+                                      ? 'Cannot change attendance: student has already arrived'
+                                      : 'Cannot change attendance: student is already boarded',
+                                ),
+                                duration: const Duration(seconds: 3),
+                              ),
+                            );
+                          }
+                        : null,
+                    child: SwitchListTile(
+                      title: const Text(
+                        'Attending today',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: const Text('Set to Absent if not riding today'),
+                      value: attending,
+                      onChanged:
+                          status == BoardingStatus.boarded ||
+                              status == BoardingStatus.alighted
+                          ? null
+                          : onAttendanceChanged,
+                      activeThumbColor: const Color(0xFFECCC6E),
+                    ),
+                  ),
                 ),
-                subtitle: const Text('Set to Absent if not riding today'),
-                value: attending,
-                onChanged: onAttendanceChanged,
-                activeColor: const Color(0xFFECCC6E),
               ),
             ),
             const SizedBox(height: 12),
             Card(
               elevation: 2,
-              color: statusColor.withOpacity(0.1),
+              color: statusColor.withValues(alpha: 0.1),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Row(
@@ -373,7 +407,7 @@ class _MonitorPageState extends State<MonitorPage> {
                           Text(
                             'Current Status',
                             style: TextStyle(
-                              color: Colors.grey[600],
+                              color: const Color.fromARGB(255, 255, 255, 255),
                               fontSize: 12,
                               fontWeight: FontWeight.w500,
                             ),
@@ -914,7 +948,7 @@ class _MonitorPageState extends State<MonitorPage> {
                   Polyline(
                     points: polylinePoints,
                     strokeWidth: 4,
-                    color: Theme.of(context).colorScheme.primary,
+                    color: Theme.of(context).colorScheme.secondary,
                   ),
                 ],
               ),
@@ -1458,8 +1492,9 @@ class _MonitorPageState extends State<MonitorPage> {
                                                       'monitor_center_fallback',
                                                   driverPoint:
                                                       fallbackDriverPoint,
-                                                  polylinePoints:
-                                                      polylinePoints,
+                                                  polylinePoints: attending
+                                                      ? polylinePoints
+                                                      : [],
                                                   markers: [
                                                     ...routeMarkers,
                                                     if (pickup != null)
@@ -1661,7 +1696,9 @@ class _MonitorPageState extends State<MonitorPage> {
                                             initialZoom: 15,
                                             heroTag: 'monitor_center_active',
                                             driverPoint: dp,
-                                            polylinePoints: polylinePoints,
+                                            polylinePoints: attending
+                                                ? polylinePoints
+                                                : [],
                                             markers: [
                                               ...routeMarkers,
                                               if (pickup != null)

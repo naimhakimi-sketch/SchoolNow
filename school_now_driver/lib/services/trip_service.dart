@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:flutter/foundation.dart';
 import '../models/trip.dart';
 import '../models/trip_live_location.dart';
 import '../models/boarding_status.dart';
@@ -263,12 +264,20 @@ class TripService {
     final ref = _db.collection('trips').doc(tripId);
     final toMirror = <({String studentId, BoardingStatus status})>[];
 
+    debugPrint(
+      'TripService.markStudentsArrivedAtSchool: marking ${studentIds.length} students as alighted for trip $tripId',
+    );
+
     await _db.runTransaction((tx) async {
       final snap = await tx.get(ref);
       final data = snap.data() ?? <String, dynamic>{};
       final passengers =
           (data['passengers'] as List?)?.cast<Map<String, dynamic>>() ??
           <Map<String, dynamic>>[];
+
+      debugPrint(
+        'TripService.markStudentsArrivedAtSchool: found ${passengers.length} passengers in trip',
+      );
 
       final nowMs = DateTime.now().millisecondsSinceEpoch;
       final updatedPassengers = passengers.map((p) {
@@ -279,6 +288,9 @@ class TripService {
         );
         if (status == BoardingStatus.absent) return p;
         toMirror.add((studentId: studentId, status: BoardingStatus.alighted));
+        debugPrint(
+          'TripService.markStudentsArrivedAtSchool: updating $studentId from $status to alighted',
+        );
         return {
           ...p,
           'status': BoardingStatusCodec.toJson(BoardingStatus.alighted),
@@ -290,9 +302,13 @@ class TripService {
         'passengers': updatedPassengers,
         'arrival_school_time_ms': nowMs,
       });
+      debugPrint(
+        'TripService.markStudentsArrivedAtSchool: updated Firestore with ${toMirror.length} students as alighted',
+      );
     });
 
     // Best-effort RTDB mirror for updated students.
+    final rtdbErrors = <String>[];
     for (final e in toMirror) {
       try {
         await _setBoardingStatusRtdb(
@@ -300,7 +316,20 @@ class TripService {
           studentId: e.studentId,
           status: e.status,
         );
-      } catch (_) {}
+        debugPrint(
+          'TripService.markStudentsArrivedAtSchool: successfully mirrored ${e.studentId} as alighted to RTDB',
+        );
+      } catch (err) {
+        debugPrint(
+          'TripService.markStudentsArrivedAtSchool: failed to mirror ${e.studentId} to RTDB: $err',
+        );
+        rtdbErrors.add('${e.studentId}: $err');
+      }
+    }
+    if (rtdbErrors.isNotEmpty) {
+      debugPrint(
+        'TripService.markStudentsArrivedAtSchool: RTDB mirror had errors: ${rtdbErrors.join(", ")}',
+      );
     }
   }
 }

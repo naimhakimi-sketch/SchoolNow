@@ -1,14 +1,26 @@
 {
   "school_now": {
-    "versionCode": 4,
+    "versionCode": 6,
+    "versionName": "1.0.1",
+    "url": "https://github.com/apolloyox/schoolnow-apk-updates/releases/download/v1.0.1-6/SchoolNow.apk",
+    "sha256": "E800491278A764666E96B39BAC15C5B3B293768209AE82178E334F018F6E2E97",
+    "releaseDate": "2026-01-04",
+    "size": "72.64MB"
+  },
+  "school_now_admin": {
+    "versionCode": 1,
     "versionName": "1.0.0",
-    "url": "https://github.com/apolloyox/schoolnow-apk-updates/releases/download/v1.0.0-4/SchoolNow-v1.0.0-4.apk",
-    "sha256": "58451FA43575C2CA131ED26FFF83C1B1E8E9396039C9B48E368CA52242ABE9D4"
+    "url": "https://github.com/apolloyox/schoolnow-apk-updates/releases/download/v1.0.0-1/SchoolNowAdmin.apk",
+    "sha256": "6D61BD77B33A7D7BA02AB78D85E515A5568A7D71E1F39FB8FA64B94079DB5C1B",
+    "releaseDate": "2026-01-04",
+    "size": "51.68MB"
   },
   "school_now_driver": {
-    "versionCode": 4,
-    "versionName": "1.0.0",
-    "url": "https://github.com/apolloyox/schoolnow-apk-updates/releases/download/v1.0.0-4/SchoolNow-Driver-v1.0.0-4.apk",
-    "sha256": "ACEAD6FE412ABFEE837E369E421D112A662B78D31D38D4E6423837D32A712175"
+    "versionCode": 6,
+    "versionName": "1.0.1",
+    "url": "https://github.com/apolloyox/schoolnow-apk-updates/releases/download/v1.0.1-6/SchoolNowDriver.apk",
+    "sha256": "DF5B3A01994FFA4E2B9D48FDE93448AC7AFB6A7CF5EF4B0CC801A290BE54640A",
+    "releaseDate": "2026-01-04",
+    "size": "66.04MB"
   }
 }

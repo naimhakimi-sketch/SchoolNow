@@ -186,7 +186,7 @@ class ProfilePage extends StatelessWidget {
                       icon: const Icon(Icons.person_add),
                       label: const Text('Add Another Child'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.deepPurple,
+                        backgroundColor: const Color(0xFFECCC6E),
                         foregroundColor: Colors.white,
                       ),
                     ),

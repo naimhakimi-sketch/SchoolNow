@@ -1056,11 +1056,23 @@ class _DrivePageState extends State<DrivePage> {
     final hasArea = radiusMeters != null;
     final markers = <Marker>[];
 
+    // Filter studentById to exclude students marked as absent (when no trip is active)
+    final filteredStudentById = tripId == null
+        ? Map<String, Map<String, dynamic>>.fromEntries(
+            studentById.entries.where((entry) {
+              final override =
+                  (entry.value['attendance_override'] ?? 'attending')
+                      .toString();
+              return override != 'absent';
+            }),
+          )
+        : studentById;
+
     final stopPolylinePoints = _buildRoutePolyline(
       routeType: routeType,
       driverData: driverData,
       passengers: passengers,
-      studentById: studentById,
+      studentById: filteredStudentById,
       currentPosition: _currentRouteStart,
     );
 
@@ -1110,7 +1122,7 @@ class _DrivePageState extends State<DrivePage> {
       // For afternoon routes, only show schools with students not yet boarded
       if (isAfternoon) {
         // Check if this school has any students with notBoarded status
-        final hasNotBoardedStudents = studentById.entries.any((entry) {
+        final hasNotBoardedStudents = filteredStudentById.entries.any((entry) {
           final studentId = entry.key;
           final student = entry.value;
           if ((student['school_id'] ?? '').toString() != sid) return false;
