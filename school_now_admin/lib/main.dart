@@ -3,6 +3,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
 import 'screens/admin_login_screen.dart';
+import 'services/student_migration_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,7 +17,19 @@ void main() async {
     // The app may still work depending on Firestore rules
   }
 
+  // Run student migration for trip_type field
+  _runMigration();
+
   runApp(const MyApp());
+}
+
+Future<void> _runMigration() async {
+  try {
+    final service = StudentMigrationService();
+    await service.migrateAllDrivers();
+  } catch (e) {
+    debugPrint('Student migration error: $e');
+  }
 }
 
 class MyApp extends StatelessWidget {

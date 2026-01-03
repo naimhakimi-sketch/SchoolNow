@@ -116,12 +116,52 @@ metadata.trip_type: string ('going', 'return', or 'both')
 
 For **existing users and records without trip_type field**:
 
-- System automatically defaults to **'both'** (going and return trips)
+- System automatically defaults to **'both'** (going and return trips) when reading the field
 - This ensures backward compatibility and no service disruption
 - Default is applied at:
   1. Request approval (admin/driver side)
   2. Request creation (when trip_type not specified in payment)
   3. Route building (when trip_type not found in student record)
+
+### Migration for Existing Students
+
+**Problem**: Existing students already connected to drivers won't have the `trip_type` field in Firestore.
+
+**Solution**: Three new `StudentMigrationService` classes handle this:
+
+- **Parent App**: `school_now/lib/services/student_migration_service.dart`
+- **Driver App**: `school_now_driver/lib/services/student_migration_service.dart`
+- **Admin App**: `school_now_admin/lib/services/student_migration_service.dart`
+
+**Key Features**:
+
+- ✅ Selective: Only migrates students assigned to a driver
+- ✅ Idempotent: Only adds `trip_type` if missing
+- ✅ Logged: Prints debug info for audit trail
+- ✅ Defaults to 'both': Maintains current behavior for all existing students
+- ✅ Backward Compatible: Works with or without migration
+
+**Usage Examples**:
+
+Driver App migration:
+
+```dart
+final migrationService = StudentMigrationService();
+// Migrate one driver's students
+await migrationService.migrateDriverStudents(driverId);
+// Migrate all drivers
+final results = await migrationService.migrateAllDrivers();
+```
+
+Parent App migration:
+
+```dart
+final migrationService = StudentMigrationService();
+// Migrate one parent's children
+await migrationService.migrateParentChildren(parentId);
+// Migrate all parents
+final results = await migrationService.migrateAllParents();
+```
 
 ## Route Building Logic
 
@@ -176,11 +216,14 @@ For **existing users and records without trip_type field**:
 1. `school_now/lib/features/payments/payment_page.dart`
 2. `school_now/lib/features/drivers/drivers_page.dart`
 3. `school_now/lib/features/monitor/monitor_page.dart`
-4. `school_now_driver/lib/services/student_management_service.dart`
-5. `school_now_driver/lib/features/drive/drive_page.dart`
-6. `school_now_driver/lib/features/students/students_page.dart`
-7. `school_now_admin/lib/services/service_request_service.dart`
-8. `school_now_admin/lib/screens/manage_service_requests_screen.dart`
+4. `school_now/lib/services/student_migration_service.dart` (NEW)
+5. `school_now_driver/lib/services/student_management_service.dart`
+6. `school_now_driver/lib/features/drive/drive_page.dart`
+7. `school_now_driver/lib/features/students/students_page.dart`
+8. `school_now_driver/lib/services/student_migration_service.dart` (NEW)
+9. `school_now_admin/lib/services/service_request_service.dart`
+10. `school_now_admin/lib/screens/manage_service_requests_screen.dart`
+11. `school_now_admin/lib/services/student_migration_service.dart` (NEW)
 
 ## Future Enhancements
 

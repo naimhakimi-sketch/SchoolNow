@@ -4,6 +4,7 @@ import 'package:firebase_hosting_apk_updater/firebase_hosting_apk_updater.dart';
 
 import 'core/firebase_options.dart';
 import 'features/auth/auth_gate.dart';
+import 'services/student_migration_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,7 +21,19 @@ Future<void> main() async {
     if (e.code != 'duplicate-app') rethrow;
   }
 
+  // Run student migration for trip_type field
+  _runMigration();
+
   runApp(const SchoolNowApp());
+}
+
+Future<void> _runMigration() async {
+  try {
+    final service = StudentMigrationService();
+    await service.migrateAllParents();
+  } catch (e) {
+    debugPrint('Student migration error: $e');
+  }
 }
 
 class SchoolNowApp extends StatelessWidget {

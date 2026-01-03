@@ -1465,7 +1465,33 @@ class _DrivePageState extends State<DrivePage> {
 
                     final isAfternoon = _isAfternoonRoute(routeType);
 
-                    // For PM sessions, filter students by school type
+                    // Filter students by trip type based on route type
+                    final isGoingRoute = routeType == 'morning';
+                    final isReturnRoute =
+                        routeType == 'primary_pm' ||
+                        routeType == 'secondary_pm';
+
+                    // First filter by trip type
+                    final tripTypeFiltered = <String, Map<String, dynamic>>{};
+                    for (final entry in studentById.entries) {
+                      final tripType = (entry.value['trip_type'] ?? 'both')
+                          .toString();
+
+                      bool shouldInclude = false;
+                      if (tripType == 'both') {
+                        shouldInclude = true;
+                      } else if (isGoingRoute && tripType == 'going') {
+                        shouldInclude = true;
+                      } else if (isReturnRoute && tripType == 'return') {
+                        shouldInclude = true;
+                      }
+
+                      if (shouldInclude) {
+                        tripTypeFiltered[entry.key] = entry.value;
+                      }
+                    }
+
+                    // For PM sessions, then filter students by school type
                     final targetSchoolType = routeType == 'primary_pm'
                         ? 'primary'
                         : routeType == 'secondary_pm'
@@ -1474,7 +1500,7 @@ class _DrivePageState extends State<DrivePage> {
 
                     final filteredStudentById = targetSchoolType != null
                         ? {
-                            for (final entry in studentById.entries)
+                            for (final entry in tripTypeFiltered.entries)
                               if ((_schoolTypes[(entry.value['school_id'] ?? '')
                                               .toString()] ??
                                           'primary')
@@ -1482,7 +1508,7 @@ class _DrivePageState extends State<DrivePage> {
                                   targetSchoolType)
                                 entry.key: entry.value,
                           }
-                        : studentById;
+                        : tripTypeFiltered;
 
                     final orderedStudentIds =
                         filteredStudentById.entries.toList()..sort((a, b) {
