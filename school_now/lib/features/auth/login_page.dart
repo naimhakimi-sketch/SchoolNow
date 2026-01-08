@@ -47,7 +47,7 @@ class _LoginPageState extends State<LoginPage> {
       });
     } catch (e) {
       setState(() {
-        _error = 'Login failed: $e';
+        _error = 'Login Failed: $e';
       });
     } finally {
       if (mounted) {
@@ -128,8 +128,8 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                   child: Image.asset(
                     'assets/launcher/foreground.png',
-                    height: 100,
-                    width: 100,
+                    height: 101,
+                    width: 101,
                   ),
                 ),
                 const SizedBox(height: 20),
