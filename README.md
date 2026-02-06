@@ -59,21 +59,25 @@ Driver management, fleet operations, service areas, real-time monitoring, analyt
 ## Key Features
 
 ### Real-Time Tracking
+
 ✅ Live GPS tracking of vehicles and students
 ✅ Interactive maps with polyline routes
 ✅ ETA calculations and delay notifications
 
 ### Smart Management
+
 ✅ Automated trip assignments
 ✅ Route optimization
 ✅ Service area-based student assignment
 
 ### Secure Communication
+
 ✅ Real-time parent notifications
 ✅ Driver-to-admin messaging
 ✅ Emergency alert system
 
 ### Financial Integration
+
 ✅ Secure payment processing
 ✅ Invoice and receipt management
 ✅ Transaction reporting
@@ -167,5 +171,3 @@ Auto-updates available via Firebase Hosting.
 ---
 
 **Built with ❤️ using Flutter and Firebase**
-
-**Built with using Flutter and Firebase**
