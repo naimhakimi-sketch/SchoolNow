@@ -59,28 +59,24 @@ Driver management, fleet operations, service areas, real-time monitoring, analyt
 ## Key Features
 
 ### Real-Time Tracking
-
-Live GPS tracking of vehicles and students
-Interactive maps with polyline routes
-ETA calculations and delay notifications
+✅ Live GPS tracking of vehicles and students
+✅ Interactive maps with polyline routes
+✅ ETA calculations and delay notifications
 
 ### Smart Management
-
-Automated trip assignments
-Route optimization
-Service area-based student assignment
+✅ Automated trip assignments
+✅ Route optimization
+✅ Service area-based student assignment
 
 ### Secure Communication
-
-Real-time parent notifications
-Driver-to-admin messaging
-Emergency alert system
+✅ Real-time parent notifications
+✅ Driver-to-admin messaging
+✅ Emergency alert system
 
 ### Financial Integration
-
-Secure payment processing
-Invoice and receipt management
-Transaction reporting
+✅ Secure payment processing
+✅ Invoice and receipt management
+✅ Transaction reporting
 
 ## Technology Stack
 
@@ -92,34 +88,33 @@ Transaction reporting
 
 ## Project Structure
 
-`SchoolNow/
- school_now/              # Parent/Guardian App
- school_now_driver/       # Driver App
- school_now_admin/        # Admin Dashboard
- packages/                # Shared packages
- functions/               # Cloud Functions
- hosting/                 # Static assets
- firebase.json`
+```
+SchoolNow/
+├── school_now/              # Parent/Guardian App
+├── school_now_driver/       # Driver App
+├── school_now_admin/        # Admin Dashboard
+├── packages/                # Shared packages
+├── functions/               # Cloud Functions
+├── hosting/                 # Static assets
+└── firebase.json
+```
 
 ## Quick Start
 
-`ash
-
+```bash
 # Clone repository
-
 git clone https://github.com/yourusername/SchoolNow.git
 cd SchoolNow
 
 # Run Parent App
-
 cd school_now && flutter pub get && flutter run
-`
+```
 
 ## Data Flow
 
-Driver GPS Firebase Realtime DB Parent's Live Map
+Driver GPS → Firebase Realtime DB → Parent's Live Map
 
-Trip Lifecycle: Assign Accept Navigate Location Updates Check-in/out Complete Analytics
+Trip Lifecycle: Assign → Accept → Navigate → Location Updates → Check-in/out → Complete → Analytics
 
 ## Security & Privacy
 
@@ -144,12 +139,12 @@ Trip Lifecycle: Assign Accept Navigate Location Updates Check-in/out Complete An
 
 ## Project Highlights
 
-Real-time tracking with battery optimization
-Single codebase for iOS, Android, Web, Desktop
-Cloud-based scalable infrastructure
-Offline-first design with automatic sync
-Professional UI/UX design
-Enterprise-grade security
+✨ Real-time tracking with battery optimization
+✨ Single codebase for iOS, Android, Web, Desktop
+✨ Cloud-based scalable infrastructure
+✨ Offline-first design with automatic sync
+✨ Professional UI/UX design
+✨ Enterprise-grade security
 
 ## Future Enhancements
 
@@ -163,12 +158,14 @@ Enterprise-grade security
 
 ## Deployment
 
-**Android**: lutter build apk --release
-**iOS**: lutter build ios --release
-**Web**: lutter build web --release
+**Android**: `flutter build apk --release`
+**iOS**: `flutter build ios --release`
+**Web**: `flutter build web --release`
 
 Auto-updates available via Firebase Hosting.
 
 ---
+
+**Built with ❤️ using Flutter and Firebase**
 
 **Built with using Flutter and Firebase**
