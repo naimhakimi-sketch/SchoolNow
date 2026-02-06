@@ -1,16 +1,20 @@
-# school_now
+# SchoolNow - Parent/Guardian Mobile Application
 
-A new Flutter project.
+A Flutter-based mobile application for parents and guardians to monitor student transportation.
 
-## Getting Started
+## Features
 
-This project is a starting point for a Flutter application.
+- Real-time tracking of student location during trips
+- Trip history and management
+- Payment processing for transportation services
+- Child profile management
+- Location-based pickup and drop-off monitoring
+- Firebase integration for authentication and data management
 
-A few resources to get you started if this is your first Flutter project:
+## Architecture
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Built with Flutter and Firebase, featuring:
+- Secure authentication with Firebase Auth
+- Real-time database with Firestore
+- Cloud-based user data management
+- Cross-platform compatibility (iOS, Android, Web)

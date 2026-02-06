@@ -1,16 +1,24 @@
-# school_now_driver
+# SchoolNow - Driver Mobile Application
 
-A new Flutter project.
+A Flutter-based mobile application for drivers to manage transportation routes and student pickups.
 
-## Getting Started
+## Features
 
-This project is a starting point for a Flutter application.
+- Real-time trip management and navigation
+- GPS-based location tracking and route optimization
+- Student check-in/check-out functionality
+- Trip status updates and notifications
+- School location selection and mapping
+- Firebase authentication and account management
+- APK auto-update capability from Firebase Hosting
+- Demo mode for testing and demonstrations
 
-A few resources to get you started if this is your first Flutter project:
+## Architecture
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Built with Flutter, featuring:
+- Firebase Auth for secure authentication
+- Cloud Firestore for real-time data synchronization
+- Location services and mapping integration
+- Background location tracking
+- FirebaseHostingApkUpdater for OTA updates
+- Cross-platform (iOS and Android)

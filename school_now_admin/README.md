@@ -1,16 +1,23 @@
-# school_now_admin
+# SchoolNow - Admin Panel
 
-A new Flutter project.
+A Flutter-based admin dashboard for managing SchoolNow transportation services.
 
-## Getting Started
+## Features
 
-This project is a starting point for a Flutter application.
+- Driver management and authentication
+- Bus/vehicle fleet management
+- Route planning and optimization
+- Service area configuration
+- Real-time trip monitoring
+- User and payment management
+- Comprehensive admin controls and analytics
 
-A few resources to get you started if this is your first Flutter project:
+## Architecture
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Built with Flutter for desktop and mobile, featuring:
+- Firebase backend integration
+- Firestore for real-time data management
+- Multi-user role-based access
+- Location services and mapping
+- Data migration and synchronization
+- Admin authentication system
