@@ -11,6 +11,12 @@ The platform connects three key stakeholders:
 - **Drivers**: Manage routes and student pickups efficiently
 - **Administrators**: Oversee operations, manage fleet, optimize routes
 
+## Screenshots
+
+<img src="README_assets/schoolnow_parents_monitor_page.jpg" alt="Parent Monitoring" width="200" /> <img src="README_assets/schoolnowdriver_servicesreen_withnavigation.jpg" alt="Driver App" width="200" /> <img src="README_assets/admin_dashboard.jpeg" alt="Admin Dashboard" width="200" />
+
+*Parent App - Real-time Monitoring | Driver App - Trip Management | Admin Dashboard - Fleet Control*
+
 ## Applications
 
 ###  [SchoolNow Parent App](./school_now/)
