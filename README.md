@@ -7,6 +7,7 @@ A comprehensive, real-time school transportation management system connecting pa
 SchoolNow is a complete end-to-end solution for managing school bus transportation services with modern mobile technology and cloud infrastructure.
 
 The platform connects three key stakeholders:
+
 - **Parents/Guardians**: Monitor children's trips in real-time
 - **Drivers**: Manage routes and student pickups efficiently
 - **Administrators**: Oversee operations, manage fleet, optimize routes
@@ -15,11 +16,12 @@ The platform connects three key stakeholders:
 
 <img src="README_assets/schoolnow_parents_monitor_page.jpg" alt="Parent Monitoring" width="200" /> <img src="README_assets/schoolnowdriver_servicesreen_withnavigation.jpg" alt="Driver App" width="200" /> <img src="README_assets/admin_dashboard.jpeg" alt="Admin Dashboard" width="200" />
 
-*Parent App - Real-time Monitoring | Driver App - Trip Management | Admin Dashboard - Fleet Control*
+_Parent App - Real-time Monitoring | Driver App - Trip Management | Admin Dashboard - Fleet Control_
 
 ## Applications
 
-###  [SchoolNow Parent App](./school_now/)
+### [SchoolNow Parent App](./school_now/)
+
 **Mobile Application for Parents and Guardians**
 
 Real-time GPS tracking, trip history, payment processing, emergency notifications.
@@ -30,7 +32,8 @@ Real-time GPS tracking, trip history, payment processing, emergency notification
 
 ---
 
-###  [SchoolNow Driver App](./school_now_driver/)
+### [SchoolNow Driver App](./school_now_driver/)
+
 **Mobile Application for Transportation Drivers**
 
 Trip assignments, student management, navigation, automatic app updates.
@@ -41,7 +44,8 @@ Trip assignments, student management, navigation, automatic app updates.
 
 ---
 
-###  [SchoolNow Admin Panel](./school_now_admin/)
+### [SchoolNow Admin Panel](./school_now_admin/)
+
 **Desktop & Mobile Dashboard for Administrators**
 
 Driver management, fleet operations, service areas, real-time monitoring, analytics.
@@ -55,24 +59,28 @@ Driver management, fleet operations, service areas, real-time monitoring, analyt
 ## Key Features
 
 ### Real-Time Tracking
- Live GPS tracking of vehicles and students
- Interactive maps with polyline routes
- ETA calculations and delay notifications
+
+Live GPS tracking of vehicles and students
+Interactive maps with polyline routes
+ETA calculations and delay notifications
 
 ### Smart Management
- Automated trip assignments
- Route optimization
- Service area-based student assignment
+
+Automated trip assignments
+Route optimization
+Service area-based student assignment
 
 ### Secure Communication
- Real-time parent notifications
- Driver-to-admin messaging
- Emergency alert system
+
+Real-time parent notifications
+Driver-to-admin messaging
+Emergency alert system
 
 ### Financial Integration
- Secure payment processing
- Invoice and receipt management
- Transaction reporting
+
+Secure payment processing
+Invoice and receipt management
+Transaction reporting
 
 ## Technology Stack
 
@@ -84,33 +92,34 @@ Driver management, fleet operations, service areas, real-time monitoring, analyt
 
 ## Project Structure
 
-`
-SchoolNow/
+`SchoolNow/
  school_now/              # Parent/Guardian App
  school_now_driver/       # Driver App
  school_now_admin/        # Admin Dashboard
  packages/                # Shared packages
  functions/               # Cloud Functions
  hosting/                 # Static assets
- firebase.json
-`
+ firebase.json`
 
 ## Quick Start
 
 `ash
+
 # Clone repository
+
 git clone https://github.com/yourusername/SchoolNow.git
 cd SchoolNow
 
 # Run Parent App
+
 cd school_now && flutter pub get && flutter run
 `
 
 ## Data Flow
 
-Driver GPS  Firebase Realtime DB  Parent's Live Map
+Driver GPS Firebase Realtime DB Parent's Live Map
 
-Trip Lifecycle: Assign  Accept  Navigate  Location Updates  Check-in/out  Complete  Analytics
+Trip Lifecycle: Assign Accept Navigate Location Updates Check-in/out Complete Analytics
 
 ## Security & Privacy
 
@@ -135,12 +144,12 @@ Trip Lifecycle: Assign  Accept  Navigate  Location Updates  Check-in/out  Comple
 
 ## Project Highlights
 
- Real-time tracking with battery optimization
- Single codebase for iOS, Android, Web, Desktop
- Cloud-based scalable infrastructure
- Offline-first design with automatic sync
- Professional UI/UX design
- Enterprise-grade security
+Real-time tracking with battery optimization
+Single codebase for iOS, Android, Web, Desktop
+Cloud-based scalable infrastructure
+Offline-first design with automatic sync
+Professional UI/UX design
+Enterprise-grade security
 
 ## Future Enhancements
 
@@ -162,4 +171,4 @@ Auto-updates available via Firebase Hosting.
 
 ---
 
-**Built with  using Flutter and Firebase**
+**Built with using Flutter and Firebase**
